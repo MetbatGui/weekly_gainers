@@ -3,8 +3,8 @@ import shutil
 from datetime import datetime, date
 from pathlib import Path
 
-from src.domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
-from src.infra.storage.parquet_repository import ParquetWeeklyGainerRepository
+from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
+from infra.storage.parquet_repository import ParquetWeeklyGainerRepository
 
 @pytest.fixture
 def test_repo(tmp_path):

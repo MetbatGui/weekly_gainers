@@ -5,8 +5,8 @@ from typing import Optional, List
 from datetime import datetime, date
 from pathlib import Path
 
-from src.domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
-from src.domain.repositories import IWeeklyGainerRepository
+from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
+from domain.repositories import IWeeklyGainerRepository
 
 class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
     """Parquet 파일을 사용하여 주간 등락률 데이터를 저장하는 구현체.

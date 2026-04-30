@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional, List
-from .models import WeeklyCollectionEvent
+from domain.models import WeeklyCollectionEvent
 
 class IWeeklyGainerRepository(ABC):
     """주간 등락률 데이터 및 수집 이벤트를 관리하는 레포지토리 인터페이스.
