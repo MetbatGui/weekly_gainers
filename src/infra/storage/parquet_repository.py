@@ -38,13 +38,17 @@ class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
             json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     def save(self, event: WeeklyCollectionEvent) -> None:
-        # 1. 개별 종목 데이터를 DataFrame으로 변환하여 Parquet 저장
+        # 1. 파일명 규칙: weekly_gainers_{year}_W{week:02d}_{month:02d}M{week_of_month}W_{start_md}~{end_md}.parquet
+        start_md = event.items[0].start_date.strftime("%m%d") if event.items else "0000"
+        end_md = event.items[0].end_date.strftime("%m%d") if event.items else "0000"
+        filename = f"weekly_gainers_{event.year}_W{event.week:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.parquet"
+
         if event.items:
             df = pd.DataFrame([item.__dict__ for item in event.items])
             year_dir = self.base_path / str(event.year)
             year_dir.mkdir(exist_ok=True)
             
-            file_path = year_dir / f"{event.id}.parquet"
+            file_path = year_dir / filename
             df.to_parquet(file_path, index=False)
 
         # 2. 이벤트 메타데이터 업데이트
@@ -53,11 +57,14 @@ class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
             "id": event.id,
             "year": event.year,
             "week": event.week,
+            "month": event.month,
+            "week_of_month": event.week_of_month,
             "collected_at": event.collected_at.isoformat(),
             "day_of_week": event.day_of_week,
             "last_trading_day": event.last_trading_day.isoformat(),
             "status": event.status.value,
-            "total_count": event.total_count
+            "total_count": event.total_count,
+            "filename": filename
         }
         self._save_manifest(manifest)
 
@@ -77,9 +84,16 @@ class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
             status=CollectionStatus(meta["status"]),
             total_count=meta["total_count"]
         )
+        # 매니페스트에서 계산된 월/주차 정보 복구
+        event.month = meta.get("month", 0)
+        event.week_of_month = meta.get("week_of_month", 0)
 
-        # Parquet 파일에서 아이템 로드
-        file_path = self.base_path / str(event.year) / f"{event_id}.parquet"
+        # 저장된 파일명으로 아이템 로드
+        filename = meta.get("filename")
+        if not filename:
+            return event
+
+        file_path = self.base_path / str(event.year) / filename
         if file_path.exists():
             df = pd.read_parquet(file_path)
             items = []
