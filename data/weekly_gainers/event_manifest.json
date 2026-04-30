@@ -1,0 +1,15 @@
+{
+  "2026-W17": {
+    "id": "2026-W17",
+    "year": 2026,
+    "week": 17,
+    "month": 4,
+    "week_of_month": 4,
+    "collected_at": "2026-04-30T16:48:15.596919",
+    "day_of_week": "Thursday",
+    "last_trading_day": "2026-04-24",
+    "status": "COMPLETED",
+    "total_count": 2878,
+    "filename": "weekly_gainers_2026_W17_04M4W_0420~0424.parquet"
+  }
+}
