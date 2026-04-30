@@ -47,8 +47,9 @@ class WeeklyGainerService:
             print(f"[Service] {event_id} 데이터 수집 실패")
             return False
 
-        # 4. 필터링 (등락률 20% 이상) 및 이벤트 생성
+        # 4. 필터링 (등락률 20% 이상) 및 정렬 (등락률 내림차순)
         gainer_items = [item for item in all_items if item.change_rate >= 20.0]
+        gainer_items.sort(key=lambda x: x.change_rate, reverse=True)
         
         event = WeeklyCollectionEvent(
             id=event_id,
@@ -68,15 +69,30 @@ class WeeklyGainerService:
 
         # 6. 구글 드라이브 업로드 (Excel)
         if gainer_items:
+            # 한글 컬럼명 매핑
+            column_mapping = {
+                'symbol_code': '종목코드',
+                'symbol_name': '종목명',
+                'start_date': '시작일',
+                'base_price': '기준가',
+                'end_date': '종료일',
+                'close_price': '종가',
+                'change': '대비',
+                'change_rate': '등락률',
+                'volume': '거래량',
+                'amount': '거래대금'
+            }
+            
             df = pd.DataFrame([item.__dict__ for item in gainer_items])
+            df = df[list(column_mapping.keys())].rename(columns=column_mapping)
+            
             # 리포트용 파일명 및 경로 설정
             remote_path = f"{year}/{event.month:02d}월"
-            # 레포지토리에서 생성된 상세 파일명 규칙 활용 (또는 새로 생성)
             filename = f"weekly_gainers_{year}_W{week:02d}_{event.month:02d}M{event.week_of_month}W_{start_date.strftime('%m%d')}~{end_date.strftime('%m%d')}.xlsx"
             
             success = self.gdrive.upload_excel(df, remote_path, filename)
             if success:
-                print(f"[Service] 구글 드라이브 업로드 완료")
+                print(f"[Service] 구글 드라이브 업로드 완료 (한글 리포트)")
 
         return True
 
