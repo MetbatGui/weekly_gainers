@@ -93,7 +93,7 @@ class KrxStockDataAdapter:
         except (ValueError, TypeError):
             return 0.0
 
-    def fetch_weekly_data(self, start_date: date, end_date: date) -> List[WeeklyGainerItem]:
+    def fetch_weekly_data(self, start_date: date, end_date: date, retry: bool = True) -> List[WeeklyGainerItem]:
         """지정된 기간(주간)의 전종목 등락 데이터를 수집합니다."""
         url = f"{self.BASE_URL}/comm/bldAttendant/getJsonData.cmd"
         payload = {
@@ -109,21 +109,23 @@ class KrxStockDataAdapter:
             'csvxls_isNo': 'false',
         }
 
-        print(f"[Adapter:KRX] {start_date} ~ {end_date} 기간 데이터 요청 중...")
-        
         try:
             response = self.session.post(url, data=payload, timeout=30)
             
+            # 세션 만료 처리
+            if "LOGOUT" in response.text and retry:
+                print("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")
+                self._login()
+                return self.fetch_weekly_data(start_date, end_date, retry=False)
+
             if response.status_code != 200:
                 print(f"[Adapter:KRX] HTTP 에러 발생: {response.status_code}")
-                print(f"응답 내용: {response.text[:500]}")
                 return []
             
             data = response.json()
             rows = data.get('OutBlock_1', []) or data.get('output', [])
             
             if not rows:
-                print(f"[Adapter:KRX] 응답에 데이터가 없습니다: {data}")
                 return []
 
             items = []
@@ -141,7 +143,6 @@ class KrxStockDataAdapter:
                     amount=int(self._parse_num(row.get('ACC_TRDVAL')))
                 ))
             
-            print(f"[Adapter:KRX] 수집 완료: {len(items)}개 종목")
             return items
 
         except Exception as e:

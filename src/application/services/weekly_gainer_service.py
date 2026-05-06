@@ -25,36 +25,39 @@ class WeeklyGainerService:
 
     def collect_week(self, year: int, week: int, force: bool = False) -> bool:
         """특정 주차의 데이터를 수집하고 저장 및 업로드합니다."""
-        event_id = f"{year}-W{week:02d}"
+        # 1. 수집 대상 날짜 먼저 계산
+        monday, friday = self.calendar.get_week_dates(year, week)
         
-        # 1. 이미 수집되었는지 확인 (강제 수집 모드가 아닐 때)
+        # 2. 실제 ISO 연도와 주차 번호 확정 (예: 2025년 53주는 실제 2026년 1주임)
+        iso_year, iso_week, _ = monday.isocalendar()
+        event_id = f"{iso_year}-W{iso_week:02d}"
+        
+        # 3. 이미 수집되었는지 확인 (강제 수집 모드가 아닐 때)
         if not force:
             existing = self.repo.get_by_id(event_id)
             if existing and existing.status == CollectionStatus.COMPLETED:
                 print(f"[Service] {event_id}는 이미 수집 완료되었습니다. 건너뜁니다.")
                 return True
 
-        print(f"\n[Service] {event_id} 수집 시작...")
+        print(f"\n[Service] {event_id} 수집 시작... ({monday} ~ {friday})")
 
-        # 2. 수집 기간 계산
-        monday, friday = self.calendar.get_week_dates(year, week)
         start_date = self.calendar.get_first_trading_day(monday)
         end_date = self.calendar.get_last_trading_day(friday)
 
-        # 3. 데이터 수집 (KRX 어댑터)
+        # 4. 데이터 수집 (KRX 어댑터)
         all_items = self.krx.fetch_weekly_data(start_date, end_date)
         if not all_items:
             print(f"[Service] {event_id} 데이터 수집 실패")
             return False
 
-        # 4. 필터링 (등락률 20% 이상) 및 정렬 (등락률 내림차순)
+        # 5. 필터링 (등락률 20% 이상) 및 정렬 (등락률 내림차순)
         gainer_items = [item for item in all_items if item.change_rate >= 20.0]
         gainer_items.sort(key=lambda x: x.change_rate, reverse=True)
         
         event = WeeklyCollectionEvent(
             id=event_id,
-            year=year,
-            week=week,
+            year=iso_year,
+            week=iso_week,
             collected_at=datetime.now(),
             day_of_week=datetime.now().strftime("%A"),
             last_trading_day=end_date,
