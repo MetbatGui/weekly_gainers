@@ -6,6 +6,9 @@ class CalendarService:
     
     def __init__(self):
         self.kr_holidays = holidays.KR()
+        # 근로자의 날(5월 1일)은 주식 시장 휴장이므로 강제 추가
+        for y in range(2020, 2031):
+            self.kr_holidays[date(y, 5, 1)] = "Labor Day"
 
     def get_week_dates(self, year: int, week: int):
         """특정 ISO 주차의 시작일(월)과 종료일(금)을 반환합니다."""

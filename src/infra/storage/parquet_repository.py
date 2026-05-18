@@ -38,9 +38,12 @@ class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
             json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     def save(self, event: WeeklyCollectionEvent) -> None:
-        # 1. 파일명 규칙: weekly_gainers_{year}_W{week:02d}_{month:02d}M{week_of_month}W_{start_md}~{end_md}.parquet
-        start_md = event.items[0].start_date.strftime("%m%d") if event.items else "0000"
-        end_md = event.items[0].end_date.strftime("%m%d") if event.items else "0000"
+        # ISO 주차 정보로부터 해당 주차의 월요일과 금요일 날짜를 고정 계산
+        monday = date.fromisocalendar(event.year, event.week, 1)
+        friday = date.fromisocalendar(event.year, event.week, 5)
+        
+        start_md = monday.strftime("%m%d")
+        end_md = friday.strftime("%m%d")
         filename = f"weekly_gainers_{event.year}_W{event.week:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.parquet"
 
         if event.items:
@@ -64,7 +67,8 @@ class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
             "last_trading_day": event.last_trading_day.isoformat(),
             "status": event.status.value,
             "total_count": event.total_count,
-            "filename": filename
+            "filename": filename,
+            "fingerprint": event.fingerprint
         }
         self._save_manifest(manifest)
 
@@ -82,7 +86,8 @@ class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
             day_of_week=meta["day_of_week"],
             last_trading_day=date.fromisoformat(meta["last_trading_day"]),
             status=CollectionStatus(meta["status"]),
-            total_count=meta["total_count"]
+            total_count=meta["total_count"],
+            fingerprint=meta.get("fingerprint")
         )
         # 매니페스트에서 계산된 월/주차 정보 복구
         event.month = meta.get("month", 0)

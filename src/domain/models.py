@@ -11,11 +11,13 @@ class CollectionStatus(Enum):
         IN_PROGRESS: 수집 진행 중
         COMPLETED: 수집 완료
         FAILED: 수집 실패
+        FINAL: 지난주 확정 상태 (수정 불가)
     """
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    FINAL = "FINAL"
 
 
 @dataclass
@@ -62,6 +64,7 @@ class WeeklyCollectionEvent:
         status (CollectionStatus): 수집 진행 상태
         items (List[WeeklyGainerItem]): 해당 주차에 수집된 상위 등락 종목 리스트 (등락률 20% 이상)
         total_count (int): 해당 주차의 시장 전체 상장 종목 수
+        fingerprint (Optional[str]): 상위 5개 종목의 지문 (무결성 체크용)
     """
     id: str
     year: int
@@ -74,6 +77,7 @@ class WeeklyCollectionEvent:
     status: CollectionStatus = CollectionStatus.PENDING
     items: List[WeeklyGainerItem] = field(default_factory=list)
     total_count: int = 0
+    fingerprint: Optional[str] = None
 
     def __post_init__(self):
         """데이터 생성 후 요일 및 월별 주차 정보를 자동 계산하여 고정합니다."""

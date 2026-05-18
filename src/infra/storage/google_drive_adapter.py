@@ -65,13 +65,47 @@ class GoogleDriveAdapter:
 
     def _ensure_path(self, path: str) -> str:
         """경로상의 폴더들을 모두 생성하고 마지막 폴더의 ID를 반환합니다."""
-        parts = path.strip("/").split("/")
         current_parent_id = self.root_folder_id or 'root'
-        
+        if not path or path.strip("/") == "":
+            return current_parent_id
+
+        parts = path.strip("/").split("/")
         for part in parts:
             current_parent_id = self._get_or_create_folder(part, current_parent_id)
             
         return current_parent_id
+
+    def upload_file(self, local_path: str, remote_path: str, filename: str, mimetype: str = 'application/octet-stream') -> bool:
+        """로컬 파일을 구글 드라이브에 업로드합니다."""
+        try:
+            if not os.path.exists(local_path):
+                print(f"[Adapter:GoogleDrive] [Error] Local file not found: {local_path}")
+                return False
+
+            # 1. 업로드 위치(부모 폴더) 확보
+            parent_id = self._ensure_path(remote_path)
+
+            # 2. 기존 파일 존재 여부 확인 (있으면 덮어쓰기)
+            query = f"name = '{filename}' and '{parent_id}' in parents and trashed = false"
+            results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+            existing_files = results.get('files', [])
+
+            from googleapiclient.http import MediaFileUpload
+            media = MediaFileUpload(local_path, mimetype=mimetype, resumable=True)
+
+            if existing_files:
+                file_id = existing_files[0]['id']
+                self.drive_service.files().update(fileId=file_id, media_body=media).execute()
+                print(f"[Adapter:GoogleDrive] [OK] File updated: {filename}")
+            else:
+                file_metadata = {'name': filename, 'parents': [parent_id]}
+                self.drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                print(f"[Adapter:GoogleDrive] [OK] File uploaded: {filename}")
+
+            return True
+        except Exception as e:
+            print(f"[Adapter:GoogleDrive] [Error] File upload failed: {e}")
+            return False
 
     def upload_excel(self, df: pd.DataFrame, remote_path: str, filename: str) -> bool:
         """DataFrame을 Excel로 변환하여 구글 드라이브에 업로드합니다."""
