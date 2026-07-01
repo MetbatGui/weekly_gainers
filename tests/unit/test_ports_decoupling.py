@@ -21,6 +21,13 @@ class StubCalendar(CalendarPort):
     def get_first_trading_day(self, target_date: date) -> date:
         return date(2026, 6, 22)
 
+    def is_holiday(self, target_date: date) -> bool:
+        return target_date.weekday() >= 5
+
+    def get_trading_range_in_period(self, start_date: date, end_date: date) -> Tuple[Optional[date], Optional[date]]:
+        return start_date, end_date
+
+
 
 class StubStockData(StockDataPort):
     def fetch_period_data(self, start_date: date, end_date: date) -> List[WeeklyGainerItem]:
