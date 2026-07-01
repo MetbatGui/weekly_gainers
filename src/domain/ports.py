@@ -20,6 +20,15 @@ class CalendarPort(ABC):
     def get_first_trading_day(self, target_date: date) -> date:
         pass
 
+    @abstractmethod
+    def is_holiday(self, target_date: date) -> bool:
+        pass
+
+    @abstractmethod
+    def get_trading_range_in_period(self, start_date: date, end_date: date) -> Tuple[Optional[date], Optional[date]]:
+        pass
+
+
 
 class StockDataPort(ABC):
     """주식 전종목 데이터 및 지수구성종목 데이터를 수집하는 인터페이스."""
