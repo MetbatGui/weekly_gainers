@@ -16,9 +16,18 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
     - {base_path}/event_manifest.json : 이벤트 메타데이터(상태, 수집일 등) 관리
     """
 
-    def __init__(self, base_path: str = "data/weekly_gainers"):
-        self.base_path = Path(base_path)
-        self.manifest_path = self.base_path / "event_manifest.json"
+    def __init__(self, base_path: str = "data/weekly_gainers", period_type: Optional[str] = None):
+        raw_base = Path(base_path)
+        if period_type == "WEEKLY":
+            self.manifest_path = raw_base / "weekly_event_manifest.json"
+            self.base_path = raw_base / "weekly"
+        elif period_type == "MONTHLY":
+            self.manifest_path = raw_base / "monthly_event_manifest.json"
+            self.base_path = raw_base / "monthly"
+        else:
+            self.manifest_path = raw_base / "event_manifest.json"
+            self.base_path = raw_base
+            
         self._ensure_directories()
 
     def _ensure_directories(self):
@@ -38,13 +47,16 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
             json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     def save(self, event: WeeklyCollectionEvent) -> None:
-        # ISO 주차 정보로부터 해당 주차의 월요일과 금요일 날짜를 고정 계산
-        monday = date.fromisocalendar(event.year, event.week, 1)
-        friday = date.fromisocalendar(event.year, event.week, 5)
-        
-        start_md = monday.strftime("%m%d")
-        end_md = friday.strftime("%m%d")
-        filename = f"weekly_gainers_{event.year}_W{event.week:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.parquet"
+        # ISO 주차 정보로부터 해당 주차의 월요일과 금요일 날짜를 고정 계산 (주간인 경우에만)
+        if event.week > 0:
+            monday = date.fromisocalendar(event.year, event.week, 1)
+            friday = date.fromisocalendar(event.year, event.week, 5)
+            
+            start_md = monday.strftime("%m%d")
+            end_md = friday.strftime("%m%d")
+            filename = f"weekly_gainers_{event.year}_W{event.week:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.parquet"
+        else:
+            filename = f"monthly_gainers_{event.year}_{event.month:02d}월.parquet"
 
         if event.items:
             df = pd.DataFrame([item.__dict__ for item in event.items])
