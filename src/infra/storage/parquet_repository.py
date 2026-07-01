@@ -6,9 +6,9 @@ from datetime import datetime, date
 from pathlib import Path
 
 from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
-from domain.repositories import IWeeklyGainerRepository
+from domain.ports import ReportStoragePort
 
-class ParquetWeeklyGainerRepository(IWeeklyGainerRepository):
+class ParquetWeeklyGainerRepository(ReportStoragePort):
     """Parquet 파일을 사용하여 주간 등락률 데이터를 저장하는 구현체.
     
     데이터 구조:

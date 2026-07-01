@@ -3,25 +3,23 @@ import pandas as pd
 from typing import List, Optional
 
 from domain.models import WeeklyCollectionEvent, CollectionStatus, WeeklyGainerItem
-from application.services.calendar_service import CalendarService
-from infra.adapters.krx_adapter import KrxStockDataAdapter
-from infra.storage.parquet_repository import ParquetWeeklyGainerRepository
-from infra.storage.google_drive_adapter import GoogleDriveAdapter
+from domain.ports import CalendarPort, StockDataPort, ReportStoragePort, CloudUploadPort
 
 class WeeklyGainerService:
     """주간 등락 종목 수집 및 리포트 생성을 총괄하는 서비스."""
 
     def __init__(
         self,
-        calendar_service: CalendarService,
-        krx_adapter: KrxStockDataAdapter,
-        repository: ParquetWeeklyGainerRepository,
-        gdrive_adapter: GoogleDriveAdapter
+        calendar: CalendarPort,
+        stock_data: StockDataPort,
+        repository: ReportStoragePort,
+        uploader: CloudUploadPort
     ):
-        self.calendar = calendar_service
-        self.krx = krx_adapter
+        self.calendar = calendar
+        self.krx = stock_data
         self.repo = repository
-        self.gdrive = gdrive_adapter
+        self.gdrive = uploader
+
 
     def _generate_fingerprint(self, items: List[WeeklyGainerItem]) -> str:
         """상위 5개 종목의 코드와 등락률로 고유 지문을 생성합니다."""
@@ -59,7 +57,7 @@ class WeeklyGainerService:
             end_date = self.calendar.get_last_trading_day(friday)
 
         # 3. 데이터 수집 (KRX 어댑터)
-        all_items = self.krx.fetch_weekly_data(start_date, end_date)
+        all_items = self.krx.fetch_period_data(start_date, end_date)
         if not all_items:
             print(f"[Service] {event_id} 데이터 수집 실패")
             return False

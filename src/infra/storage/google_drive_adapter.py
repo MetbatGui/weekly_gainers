@@ -8,9 +8,12 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from dotenv import load_dotenv
 
+from dotenv import load_dotenv
+from domain.ports import CloudUploadPort
+
 load_dotenv()
 
-class GoogleDriveAdapter:
+class GoogleDriveAdapter(CloudUploadPort):
     """Google Drive에 주간 리포트(Excel)를 저장하는 어댑터."""
 
     SCOPES = ['https://www.googleapis.com/auth/drive']

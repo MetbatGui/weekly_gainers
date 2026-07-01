@@ -1,8 +1,11 @@
 import holidays
 from datetime import date, timedelta
 
-class CalendarService:
+from domain.ports import CalendarPort
+
+class CalendarService(CalendarPort):
     """거래소 휴장일을 고려하여 수집 대상 기간을 계산하는 서비스."""
+
     
     def __init__(self):
         self.kr_holidays = holidays.KR()

@@ -1,15 +1,16 @@
 import requests
 import time
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Set
 from domain.models import WeeklyGainerItem
+from domain.ports import StockDataPort
 
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-class KrxStockDataAdapter:
+class KrxStockDataAdapter(StockDataPort):
     """KRX API를 호출하여 주간 등락 데이터를 수집하는 어댑터.
     
     Attributes:
@@ -94,6 +95,10 @@ class KrxStockDataAdapter:
             return 0.0
 
     def fetch_weekly_data(self, start_date: date, end_date: date, retry: bool = True) -> List[WeeklyGainerItem]:
+        """하위 호환성을 유지하기 위한 fetch_period_data의 에일리어스 메서드입니다."""
+        return self.fetch_period_data(start_date, end_date, retry)
+
+    def fetch_period_data(self, start_date: date, end_date: date, retry: bool = True) -> List[WeeklyGainerItem]:
         """지정된 기간(주간)의 전종목 등락 데이터를 수집합니다."""
         url = f"{self.BASE_URL}/comm/bldAttendant/getJsonData.cmd"
         payload = {
@@ -148,3 +153,8 @@ class KrxStockDataAdapter:
         except Exception as e:
             print(f"[Adapter:KRX] 예외 발생: {e}")
             return []
+
+    def fetch_index_components(self, index_code: str, target_date: date) -> Set[str]:
+        """지수 구성종목을 가져옵니다. 마일스톤 2에서 정식 구현됩니다."""
+        raise NotImplementedError("This method will be implemented in Milestone 2")
+
