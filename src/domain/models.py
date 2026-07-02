@@ -84,16 +84,21 @@ class WeeklyCollectionEvent:
         if not self.day_of_week and self.collected_at:
             self.day_of_week = self.collected_at.strftime("%A")
 
-        # 과반 로직(ISO 8601) 기반 월 및 월별 주차 계산
-        # 해당 주의 목요일을 기준으로 달을 결정함
-        thursday = self.last_trading_day + timedelta(days=(3 - self.last_trading_day.weekday()))
-        self.month = thursday.month
-        
-        # 해당 월의 몇 번째 목요일인지 계산
-        count = 0
-        temp = date(thursday.year, thursday.month, 1)
-        while temp <= thursday:
-            if temp.weekday() == 3: # Thursday
-                count += 1
-            temp += timedelta(days=1)
-        self.week_of_month = count
+        # 과반 로직(ISO 8601) 기반 월 및 월별 주차 계산 (주간 수집 시에만 적용)
+        if self.week > 0 and self.last_trading_day:
+            thursday = self.last_trading_day + timedelta(days=(3 - self.last_trading_day.weekday()))
+            self.month = thursday.month
+            
+            # 해당 월의 몇 번째 목요일인지 계산
+            count = 0
+            temp = date(thursday.year, thursday.month, 1)
+            while temp <= thursday:
+                if temp.weekday() == 3: # Thursday
+                    count += 1
+                temp += timedelta(days=1)
+            self.week_of_month = count
+        else:
+            if not self.month and self.last_trading_day:
+                self.month = self.last_trading_day.month
+            self.week_of_month = 0
+

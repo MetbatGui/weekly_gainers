@@ -15,8 +15,8 @@ class StubUploader(CloudUploadPort):
     def __init__(self):
         self.uploaded_files = []
 
-    def upload_excel(self, dfs: dict[str, pd.DataFrame], remote_path: str, filename: str) -> bool:
-        self.uploaded_files.append((filename, remote_path, dfs))
+    def upload_excel(self, file_content: bytes, remote_path: str, filename: str) -> bool:
+        self.uploaded_files.append((filename, remote_path, file_content))
         return True
 
     def upload_file(self, local_path: str, remote_path: str, filename: str, mimetype: str = 'application/octet-stream') -> bool:
@@ -25,6 +25,7 @@ class StubUploader(CloudUploadPort):
 
 def test_weekly_gainer_service_integration_flow(tmp_path):
     """실제 서비스에 실제 인프라 어댑터들을 주입하고, HTTP만 모킹한 상태에서 전체 주간 수집 파이프라인 통합 흐름 검증"""
+    import io
     
     # 1. 실제 어댑터들 생성 (스토리지 격리)
     calendar = CalendarService()
@@ -73,8 +74,9 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         ]
     }
 
-    # KRX HTTP 세션 post 모킹
-    with patch.object(stock_data.session, 'post') as mock_post:
+    # KRX HTTP 세션 post 모킹 및 지수구성종목 모킹
+    with patch.object(stock_data.session, 'post') as mock_post, \
+         patch.object(stock_data, 'fetch_index_components', return_value={"005930"}) as mock_idx:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.text = "SUCCESS"
@@ -86,6 +88,9 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
 
         # 5. 종합 검증
         assert success is True
+        
+        # 지수 구성종목이 총 4번 호출되는지 검증 (시작일/종료일 x K200/K150)
+        assert mock_idx.call_count == 4
         
         # 실제 Parquet 저장소에 물리 파일 및 매니페스트가 생성되었는지 검증
         event_id = "2026-W26"
@@ -102,10 +107,23 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         assert loaded_event.items[0].symbol_name == "삼성전자"
         assert loaded_event.items[0].change_rate == 21.43
 
-        # 업로더 기록 검증 (단일 DataFrame 엑셀 업로드 수행 확인)
+        # 업로더 기록 검증 (bytes 엑셀 업로드 수행 확인)
         assert len(uploader.uploaded_files) == 1
-        filename, remote_path, df = uploader.uploaded_files[0]
+        filename, remote_path, file_content = uploader.uploaded_files[0]
         assert "weekly_gainers_2026_W26" in filename
-        assert isinstance(df, pd.DataFrame)
-        assert len(df) == 1  # 엑셀 시트에도 1개 종목만 들어있어야 함
-        assert df.iloc[0]['종목명'] == "삼성전자"
+        assert isinstance(file_content, bytes)
+        
+        # 엑셀 데이터프레임 복원 및 시트별 검증
+        excel_file = pd.ExcelFile(io.BytesIO(file_content), engine='openpyxl')
+        assert "전체_등락종목" in excel_file.sheet_names
+        assert "KOSPI_200" in excel_file.sheet_names
+        assert "KOSDAQ_150" in excel_file.sheet_names
+        
+        df_all = pd.read_excel(excel_file, sheet_name="전체_등락종목")
+        assert len(df_all) == 1
+        assert df_all.iloc[0]['종목명'] == "삼성전자"
+        
+        df_k200 = pd.read_excel(excel_file, sheet_name="KOSPI_200")
+        assert len(df_k200) == 1
+        assert df_k200.iloc[0]['종목명'] == "삼성전자"
+
