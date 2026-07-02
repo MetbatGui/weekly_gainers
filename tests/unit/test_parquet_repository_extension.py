@@ -29,11 +29,11 @@ def test_repository_partitioning_by_period_type(tmp_path):
 
     # 3. 물리 파일 격리 검증
     # 주간 매니페스트 파일 생성 여부 확인
-    weekly_manifest = base_path / "weekly_event_manifest.json"
+    weekly_manifest = base_path / "weekly_event_manifest_2026.json"
     assert weekly_manifest.exists() is True
     
     # 월간 매니페스트 파일 생성 여부 확인
-    monthly_manifest = base_path / "monthly_event_manifest.json"
+    monthly_manifest = base_path / "monthly_event_manifest_2026.json"
     assert monthly_manifest.exists() is True
 
     # 4. 상호 간의 데이터 독립 격리 검증
@@ -63,13 +63,13 @@ def test_repository_backward_compatibility(tmp_path):
     )
     legacy_repo.save(legacy_event)
 
-    # 물리 파일이 기존의 event_manifest.json 명칭으로 생겼는지 확인
-    legacy_manifest = base_path / "event_manifest.json"
+    # 물리 파일이 기존의 event_manifest_2026.json 명칭으로 생겼는지 확인
+    legacy_manifest = base_path / "event_manifest_2026.json"
     assert legacy_manifest.exists() is True
     
-    # 기존 이름의 매니페스트가 아닌 weekly/monthly_event_manifest.json은 생성되지 않았어야 함
-    assert (base_path / "weekly_event_manifest.json").exists() is False
-    assert (base_path / "monthly_event_manifest.json").exists() is False
+    # 기존 이름의 매니페스트가 아닌 weekly/monthly_event_manifest_2026.json은 생성되지 않았어야 함
+    assert (base_path / "weekly_event_manifest_2026.json").exists() is False
+    assert (base_path / "monthly_event_manifest_2026.json").exists() is False
 
     # 정상 복원 확인
     assert legacy_repo.exists("2026-W01") is True

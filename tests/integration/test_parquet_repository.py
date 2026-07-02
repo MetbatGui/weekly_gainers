@@ -56,7 +56,7 @@ def test_parquet_repository_lifecycle_integration(tmp_path):
     assert len(parquet_files) == 1
     
     # 매니페스트 파일 존재 확인
-    manifest_file = base_path / "event_manifest.json"
+    manifest_file = base_path / "event_manifest_2026.json"
     assert manifest_file.exists() is True
 
     # 4. 저장 후 존재여부 확인

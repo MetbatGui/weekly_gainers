@@ -1,7 +1,7 @@
 import os
 import json
 import pandas as pd
-from typing import Optional, List
+from typing import Optional, List, Set
 from datetime import datetime, date
 from pathlib import Path
 
@@ -9,24 +9,18 @@ from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionSta
 from domain.ports import ReportStoragePort
 
 class ParquetWeeklyGainerRepository(ReportStoragePort):
-    """Parquet 파일을 사용하여 주간 등락률 데이터를 저장하는 구현체.
-    
-    데이터 구조:
-    - {base_path}/{year}/{event_id}.parquet : 개별 종목 데이터
-    - {base_path}/event_manifest.json : 이벤트 메타데이터(상태, 수집일 등) 관리
-    """
+    """Parquet 파일과 연도별 매니페스트를 사용하여 주간/월간 등락률 데이터를 저장하는 구현체."""
 
     def __init__(self, base_path: str = "data/weekly_gainers", period_type: Optional[str] = None):
-        raw_base = Path(base_path)
+        self.raw_base = Path(base_path)
+        self.period_type = period_type
+        
         if period_type == "WEEKLY":
-            self.manifest_path = raw_base / "weekly_event_manifest.json"
-            self.base_path = raw_base / "weekly"
+            self.base_path = self.raw_base / "weekly"
         elif period_type == "MONTHLY":
-            self.manifest_path = raw_base / "monthly_event_manifest.json"
-            self.base_path = raw_base / "monthly"
+            self.base_path = self.raw_base / "monthly"
         else:
-            self.manifest_path = raw_base / "event_manifest.json"
-            self.base_path = raw_base
+            self.base_path = self.raw_base
             
         self._ensure_directories()
 
@@ -34,16 +28,35 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
         """데이터 저장 경로가 없으면 생성합니다."""
         self.base_path.mkdir(parents=True, exist_ok=True)
 
-    def _load_manifest(self) -> dict:
-        """이벤트 메타데이터가 담긴 매니페스트 파일을 로드합니다."""
-        if not self.manifest_path.exists():
+    def _get_manifest_path(self, year: int) -> Path:
+        """지정된 연도의 매니페스트 파일 경로를 동적으로 반환합니다."""
+        if self.period_type == "WEEKLY":
+            return self.raw_base / f"weekly_event_manifest_{year}.json"
+        elif self.period_type == "MONTHLY":
+            return self.raw_base / f"monthly_event_manifest_{year}.json"
+        else:
+            return self.raw_base / f"event_manifest_{year}.json"
+
+    @property
+    def manifest_path(self) -> Path:
+        """하위 호환성과 단일 파일 전송 등을 위한 기본(현재 연도) 매니페스트 경로 프로퍼티."""
+        current_year = date.today().year
+        return self._get_manifest_path(current_year)
+
+    def _load_manifest(self, year: int) -> dict:
+        """지정된 연도의 매니페스트 파일을 로드합니다."""
+        m_path = self._get_manifest_path(year)
+        if not m_path.exists():
             return {}
-        with open(self.manifest_path, "r", encoding="utf-8") as f:
+        with open(m_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def _save_manifest(self, manifest: dict):
-        """이벤트 메타데이터를 매니페스트 파일에 저장합니다."""
-        with open(self.manifest_path, "w", encoding="utf-8") as f:
+    def _save_manifest(self, manifest: dict, year: int):
+        """지정된 연도의 매니페스트 파일에 메타데이터를 저장합니다."""
+        m_path = self._get_manifest_path(year)
+        # 상위 디렉토리 생성 확인
+        m_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(m_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     def save(self, event: WeeklyCollectionEvent) -> None:
@@ -56,7 +69,20 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
             end_md = friday.strftime("%m%d")
             filename = f"weekly_gainers_{event.year}_W{event.week:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.parquet"
         else:
-            filename = f"monthly_gainers_{event.year}_{event.month:02d}월.parquet"
+            # 월간 수집은 시작 거래일과 종료 거래일을 기반으로 명명
+            # 단, 파일명 생성을 위해 event.items가 있는 경우 첫/마지막 아이템의 날짜를 참고하거나, 
+            # 혹은 event.last_trading_day를 기반으로 한 달 날짜 범위를 추정
+            start_date = date(event.year, event.month, 1)
+            # 월말일 계산
+            if event.month == 12:
+                next_month = date(event.year + 1, 1, 1)
+            else:
+                next_month = date(event.year, event.month + 1, 1)
+            end_date = next_month - pd.Timedelta(days=1)
+            
+            start_md = start_date.strftime("%m%d")
+            end_md = end_date.strftime("%m%d")
+            filename = f"monthly_gainers_{event.year}_M{event.month:02d}_{start_md}~{end_md}.parquet"
 
         if event.items:
             df = pd.DataFrame([item.__dict__ for item in event.items])
@@ -66,8 +92,8 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
             file_path = year_dir / filename
             df.to_parquet(file_path, index=False)
 
-        # 2. 이벤트 메타데이터 업데이트
-        manifest = self._load_manifest()
+        # 2. 이벤트 메타데이터 업데이트 (동적 연도별 저장)
+        manifest = self._load_manifest(event.year)
         manifest[event.id] = {
             "id": event.id,
             "year": event.year,
@@ -82,10 +108,17 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
             "filename": filename,
             "fingerprint": event.fingerprint
         }
-        self._save_manifest(manifest)
+        self._save_manifest(manifest, event.year)
 
     def get_by_id(self, event_id: str) -> Optional[WeeklyCollectionEvent]:
-        manifest = self._load_manifest()
+        # event_id 형식 'YYYY-Www' 또는 'YYYY-Mmm'에서 연도 파싱
+        try:
+            year_str = event_id.split("-")[0]
+            year = int(year_str)
+        except (ValueError, IndexError):
+            return None
+
+        manifest = self._load_manifest(year)
         if event_id not in manifest:
             return None
 
@@ -132,23 +165,52 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
         return event
 
     def exists(self, event_id: str) -> bool:
-        manifest = self._load_manifest()
+        try:
+            year_str = event_id.split("-")[0]
+            year = int(year_str)
+        except (ValueError, IndexError):
+            return False
+
+        manifest = self._load_manifest(year)
         return event_id in manifest and manifest[event_id]["status"] == CollectionStatus.COMPLETED.value
 
     def list_all_events(self) -> List[WeeklyCollectionEvent]:
-        manifest = self._load_manifest()
         events = []
-        for event_id in manifest:
-            # 리스트 조회 시에는 성능을 위해 아이템은 로드하지 않고 메타데이터만 구성
-            meta = manifest[event_id]
-            events.append(WeeklyCollectionEvent(
-                id=meta["id"],
-                year=meta["year"],
-                week=meta["week"],
-                collected_at=datetime.fromisoformat(meta["collected_at"]),
-                day_of_week=meta["day_of_week"],
-                last_trading_day=date.fromisoformat(meta["last_trading_day"]),
-                status=CollectionStatus(meta["status"]),
-                total_count=meta["total_count"]
-            ))
+        
+        # 연도별 매니페스트 검색 패턴
+        if self.period_type == "WEEKLY":
+            pattern = "weekly_event_manifest_*.json"
+        elif self.period_type == "MONTHLY":
+            pattern = "monthly_event_manifest_*.json"
+        else:
+            pattern = "event_manifest_*.json"
+            
+        manifest_files = list(self.raw_base.glob(pattern))
+        
+        # 하위 호환성: 연도별 접미사가 없는 기존 파일도 체크
+        legacy_filename = "weekly_event_manifest.json" if self.period_type == "WEEKLY" else "monthly_event_manifest.json" if self.period_type == "MONTHLY" else "event_manifest.json"
+        legacy_file = self.raw_base / legacy_filename
+        if legacy_file.exists() and legacy_file not in manifest_files:
+            manifest_files.append(legacy_file)
+            
+        for m_path in manifest_files:
+            try:
+                with open(m_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                for event_id in manifest:
+                    meta = manifest[event_id]
+                    events.append(WeeklyCollectionEvent(
+                        id=meta["id"],
+                        year=meta["year"],
+                        week=meta["week"],
+                        collected_at=datetime.fromisoformat(meta["collected_at"]),
+                        day_of_week=meta["day_of_week"],
+                        last_trading_day=date.fromisoformat(meta["last_trading_day"]),
+                        status=CollectionStatus(meta["status"]),
+                        total_count=meta["total_count"]
+                    ))
+            except Exception as e:
+                print(f"[Repository] 매니페스트 파일 로드 스킵 ({m_path.name}): {e}")
+                continue
+                
         return events
