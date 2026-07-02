@@ -105,6 +105,13 @@ class GoogleDriveAdapter(CloudUploadPort):
                 self.drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
                 print(f"[Adapter:GoogleDrive] [OK] File uploaded: {filename}")
 
+            # Windows 환경에서의 파일 락을 방지하기 위해 파일 스트림 해제
+            if hasattr(media, '_fd') and media._fd:
+                try:
+                    media._fd.close()
+                except Exception:
+                    pass
+
             return True
         except Exception as e:
             print(f"[Adapter:GoogleDrive] [Error] File upload failed: {e}")
@@ -138,4 +145,51 @@ class GoogleDriveAdapter(CloudUploadPort):
         except Exception as e:
             print(f"[Adapter:GoogleDrive] [Error] Upload failed: {e}")
             return False
+
+    def _find_path_id(self, path: str) -> Optional[str]:
+        """경로 상의 폴더들을 생성하지 않고 순회하며 마지막 폴더의 ID를 반환합니다. 존재하지 않으면 None 반환."""
+        current_parent_id = self.root_folder_id or 'root'
+        if not path or path.strip("/") == "":
+            return current_parent_id
+
+        parts = path.strip("/").split("/")
+        for part in parts:
+            query = f"name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and '{current_parent_id}' in parents and trashed = false"
+            results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+            files = results.get('files', [])
+            if not files:
+                return None
+            current_parent_id = files[0]['id']
+            
+        return current_parent_id
+
+    def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
+        """구글 드라이브로부터 파일 콘텐츠 바이트 데이터를 다운로드합니다."""
+        from googleapiclient.http import MediaIoBaseDownload
+        try:
+            parent_id = self._find_path_id(remote_path)
+            if not parent_id:
+                return None
+
+            query = f"name = '{filename}' and '{parent_id}' in parents and trashed = false"
+            results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+            existing_files = results.get('files', [])
+            if not existing_files:
+                return None
+
+            file_id = existing_files[0]['id']
+            request = self.drive_service.files().get_media(fileId=file_id)
+            
+            output = io.BytesIO()
+            downloader = MediaIoBaseDownload(output, request)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+                
+            output.seek(0)
+            return output.getvalue()
+        except Exception as e:
+            print(f"[Adapter:GoogleDrive] [Error] Download failed ({filename}): {e}")
+            return None
+
 

@@ -69,3 +69,9 @@ class CloudUploadPort(ABC):
     def upload_file(self, local_path: str, remote_path: str, filename: str, mimetype: str = 'application/octet-stream') -> bool:
         pass
 
+    @abstractmethod
+    def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
+        pass
+
+
+
