@@ -11,7 +11,7 @@ from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionSta
 from domain.ports import ReportStoragePort, CloudUploadPort
 
 class GoogleDriveReportStorageAdapter(ReportStoragePort):
-    """Google Drive를 단일진실공급원(SSOT)으로 사용하여 주간/월간 수집 이력을 저장 및 로드하는 어댑터."""
+    """Google Drive를 단일진실공급원(SSOT)으로 사용하여 Excel 리포트 기반의 주간/월간 수집 이력을 저장 및 로드하는 어댑터."""
 
     def __init__(self, uploader: CloudUploadPort, period_type: Optional[str] = None):
         self.gdrive = uploader
@@ -37,15 +37,6 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
             return f"monthly_event_manifest_{year}.json"
         else:
             return f"event_manifest_{year}.json"
-
-    def _get_parquet_remote_path(self, year: int) -> str:
-        """구글 드라이브 내 Parquet 파일들의 격리 저장 경로를 반환합니다."""
-        if self.period_type == "WEEKLY":
-            return f"{year}/data/weekly"
-        elif self.period_type == "MONTHLY":
-            return f"{year}/data/monthly"
-        else:
-            return f"{year}/data"
 
     def _load_manifest(self, year: int) -> dict:
         """구글 드라이브로부터 해당 연도의 매니페스트를 다운로드하여 파싱합니다."""
@@ -86,14 +77,14 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
             self._safe_remove(tmp_path)
 
     def save(self, event: WeeklyCollectionEvent) -> None:
-        # 1. Parquet 파일명 결정
+        # 1. Excel 파일명 도출 (Parquet는 업로드하지 않고 매니페스트 파일명으로만 사용)
         if event.week > 0:
             monday = date.fromisocalendar(event.year, event.week, 1)
             friday = date.fromisocalendar(event.year, event.week, 5)
             
             start_md = monday.strftime("%m%d")
             end_md = friday.strftime("%m%d")
-            filename = f"weekly_gainers_{event.year}_W{event.week:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.parquet"
+            filename = f"weekly_gainers_{event.year}_W{event.week:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.xlsx"
         else:
             start_date = date(event.year, event.month, 1)
             if event.month == 12:
@@ -104,28 +95,9 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
             
             start_md = start_date.strftime("%m%d")
             end_md = end_date.strftime("%m%d")
-            filename = f"monthly_gainers_{event.year}_M{event.month:02d}_{start_md}~{end_md}.parquet"
+            filename = f"monthly_gainers_{event.year}_M{event.month:02d}_{start_md}~{end_md}.xlsx"
 
-        # 2. 아이템 정보가 존재하면 임시 Parquet 파일로 작성하여 드라이브에 업로드 후 즉시 로컬에서 지움
-        if event.items:
-            df = pd.DataFrame([item.__dict__ for item in event.items])
-            # Windows 호환 임시 파일 처리 (파일 디스크립터를 즉시 닫음)
-            fd, tmp_path = tempfile.mkstemp(suffix=".parquet")
-            os.close(fd)
-
-            try:
-                df.to_parquet(tmp_path, index=False)
-                remote_path = self._get_parquet_remote_path(event.year)
-                self.gdrive.upload_file(
-                    local_path=tmp_path,
-                    remote_path=remote_path,
-                    filename=filename,
-                    mimetype="application/octet-stream"
-                )
-            finally:
-                self._safe_remove(tmp_path)
-
-        # 3. 드라이브 상의 매니페스트 업데이트 및 업로드
+        # 2. 드라이브 상의 매니페스트 업데이트 및 업로드
         manifest = self._load_manifest(event.year)
         manifest[event.id] = {
             "id": event.id,
@@ -169,26 +141,62 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
         event.month = meta.get("month", 0)
         event.week_of_month = meta.get("week_of_month", 0)
 
-        # 4. 저장된 parquet 파일이 존재하면 드라이브로부터 다운로드하여 복원
+        # 3. 저장된 Excel 파일이 존재하면 드라이브로부터 다운로드하여 복원 (전체 등락종목 시트 파싱)
         filename = meta.get("filename")
         if filename:
-            remote_path = self._get_parquet_remote_path(event.year)
-            parquet_bytes = self.gdrive.download_file(remote_path=remote_path, filename=filename)
-            if parquet_bytes:
-                df = pd.read_parquet(io.BytesIO(parquet_bytes))
+            # 주간/월간 엑셀 리포트 원격 경로: f"{year}/{month:02d}월"
+            remote_path = f"{event.year}/{event.month:02d}월"
+            excel_bytes = self.gdrive.download_file(remote_path=remote_path, filename=filename)
+            
+            if excel_bytes:
+                # pandas excel 엔진은 openpyxl을 사용
+                df = pd.read_excel(io.BytesIO(excel_bytes), sheet_name="전체_등락종목")
+                
+                # 한글 컬럼 -> 도메인 필드 매핑 딕셔너리
+                col_mapping = {
+                    '종목코드': 'symbol_code',
+                    '종목명': 'symbol_name',
+                    '시작일': 'start_date',
+                    '기준가': 'base_price',
+                    '종료일': 'end_date',
+                    '종가': 'close_price',
+                    '대비': 'change',
+                    '등락률': 'change_rate',
+                    '거래량': 'volume',
+                    '거래대금': 'amount'
+                }
+                df.rename(columns=col_mapping, inplace=True)
+                
+                # 엑셀 데이터 타입을 도메인 모델에 맞게 클렌징 캐스팅하여 복원
                 items = []
                 for _, row in df.iterrows():
+                    # 콤마(,) 제거 및 캐스팅 처리 함수
+                    def clean_float(val) -> float:
+                        if pd.isna(val):
+                            return 0.0
+                        return float(str(val).replace(",", ""))
+
+                    def clean_int(val) -> int:
+                        if pd.isna(val):
+                            return 0
+                        return int(str(val).replace(",", ""))
+                    
+                    # 종목코드 복원 시 앞자리 0 누락 방어
+                    sym_code = str(row["symbol_code"]).strip()
+                    if len(sym_code) < 6 and sym_code.isdigit():
+                        sym_code = sym_code.zfill(6)
+
                     items.append(WeeklyGainerItem(
-                        symbol_code=row["symbol_code"],
-                        symbol_name=row["symbol_name"],
+                        symbol_code=sym_code,
+                        symbol_name=str(row["symbol_name"]),
                         start_date=pd.to_datetime(row["start_date"]).date(),
-                        base_price=float(row["base_price"]),
+                        base_price=clean_float(row["base_price"]),
                         end_date=pd.to_datetime(row["end_date"]).date(),
-                        close_price=float(row["close_price"]),
-                        change=float(row["change"]),
-                        change_rate=float(row["change_rate"]),
-                        volume=int(row["volume"]),
-                        amount=int(row["amount"])
+                        close_price=clean_float(row["close_price"]),
+                        change=clean_float(row["change"]),
+                        change_rate=clean_float(row["change_rate"]),
+                        volume=clean_int(row["volume"]),
+                        amount=clean_int(row["amount"])
                     ))
                 event.items = items
 
@@ -207,13 +215,11 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
     def list_all_events(self) -> List[WeeklyCollectionEvent]:
         events = []
         
-        # 5. 구글 드라이브 상에서 연도별 매니페스트 검색 및 로드
-        # 단위 테스트 스텁일 경우를 대비하여 drive_service 속성 유무 확인
+        # 4. 구글 드라이브 상에서 연도별 매니페스트 검색 및 로드
         drive_service = getattr(self.gdrive, "drive_service", None)
         
         manifest_files = []
         if drive_service:
-            # 실 연동 모드: 드라이브 API로 쿼리하여 manifest 파일 탐색
             if self.period_type == "WEEKLY":
                 pattern = "weekly_event_manifest_"
             elif self.period_type == "MONTHLY":
@@ -222,7 +228,6 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
                 pattern = "event_manifest_"
                 
             try:
-                # 구글 드라이브 내 manifest 검색 쿼리
                 query = f"name contains '{pattern}' and name contains '.json' and trashed = false"
                 results = drive_service.files().list(q=query, fields="files(id, name)").execute()
                 manifest_files = results.get('files', [])
@@ -230,18 +235,14 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
                 print(f"[GDriveRepo] 드라이브 매니페스트 검색 오류: {e}")
                 manifest_files = []
         else:
-            # 테스트 모드 (구체 클래스가 아닌 포트 Stub인 경우):
-            # 테스트 스텁의 uploaded_files에 들어있는 JSON 파일들을 수집
             uploaded_files = getattr(self.gdrive, "uploaded_files", [])
             for item in uploaded_files:
-                # uploaded_files는 (filename, remote_path, file_content) 구조
                 if len(item) >= 3:
                     filename, remote_path, content = item[0], item[1], item[2]
-                    # ParquetWeeklyGainerRepository와 호환을 위한 local_path도 감안
-                    if isinstance(content, str) and content.endswith(".json"):
+                    # StubUploader가 upload_file로 가로채 메모리에 bytes 형태로 보관한 json 파싱
+                    if filename.endswith(".json") and isinstance(content, bytes):
                         try:
-                            with open(content, "r", encoding="utf-8") as f:
-                                data = json.load(f)
+                            data = json.loads(content.decode("utf-8"))
                             for event_id, meta in data.items():
                                 events.append(WeeklyCollectionEvent(
                                     id=meta["id"], year=meta["year"], week=meta["week"],
@@ -254,12 +255,9 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
                             pass
             return events
 
-        # 실 연동 모드 매니페스트 파싱
         for file_info in manifest_files:
             try:
-                file_id = file_info['id']
                 filename = file_info['name']
-                # 연도 파싱
                 year_str = filename.split("_")[-1].replace(".json", "")
                 year = int(year_str)
                 
