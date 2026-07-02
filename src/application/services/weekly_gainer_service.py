@@ -180,14 +180,14 @@ class WeeklyGainerService:
             excel_data = self.excel_builder.build_report(sheets)
 
             # 경로 및 파일명 결정
+            start_md = start_target.strftime('%m%d')
+            end_md = end_target.strftime('%m%d')
             if period_type == "WEEKLY":
                 remote_path = f"{year}/{event.month:02d}월"
-                start_md = start_target.strftime('%m%d')
-                end_md = end_target.strftime('%m%d')
                 filename = f"weekly_gainers_{year}_W{period_value:02d}_{event.month:02d}M{event.week_of_month}W_{start_md}~{end_md}.xlsx"
             else:
-                remote_path = f"{year}"
-                filename = f"monthly_gainers_{year}_{period_value:02d}월.xlsx"
+                remote_path = f"{year}/{period_value:02d}월"
+                filename = f"monthly_gainers_{year}_M{period_value:02d}_{start_md}~{end_md}.xlsx"
 
             success = self.gdrive.upload_excel(excel_data, remote_path, filename)
             if success:
@@ -221,11 +221,12 @@ class WeeklyGainerService:
             print(f"--- 2단계: 이번 주({current_year}-W{current_week:02d}) 실시간 업데이트 시도 ---")
             self.collect_week(current_year, current_week, is_final=False)
 
-            print(f"--- 3단계: 매니페스트({self.repo.manifest_path.name}) 구글 드라이브 동기화 ---")
+            manifest_file = self.repo._get_manifest_path(current_year)
+            print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
             self.gdrive.upload_file(
-                local_path=str(self.repo.manifest_path),
-                remote_path="",
-                filename=self.repo.manifest_path.name,
+                local_path=str(manifest_file),
+                remote_path=str(current_year),
+                filename=manifest_file.name,
                 mimetype="application/json"
             )
         else:  # MONTHLY
@@ -245,11 +246,12 @@ class WeeklyGainerService:
             print(f"--- 2단계: 이번 달({current_year}-{current_month:02d}월) 실시간 업데이트 시도 ---")
             self.collect_month(current_year, current_month, is_final=False)
 
-            print(f"--- 3단계: 매니페스트({self.repo_monthly.manifest_path.name}) 구글 드라이브 동기화 ---")
+            manifest_file = self.repo_monthly._get_manifest_path(current_year)
+            print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
             self.gdrive.upload_file(
-                local_path=str(self.repo_monthly.manifest_path),
-                remote_path="",
-                filename=self.repo_monthly.manifest_path.name,
+                local_path=str(manifest_file),
+                remote_path=str(current_year),
+                filename=manifest_file.name,
                 mimetype="application/json"
             )
 
