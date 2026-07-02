@@ -154,7 +154,57 @@ class KrxStockDataAdapter(StockDataPort):
             print(f"[Adapter:KRX] 예외 발생: {e}")
             return []
 
-    def fetch_index_components(self, index_code: str, target_date: date) -> Set[str]:
-        """지수 구성종목을 가져옵니다. 마일스톤 2에서 정식 구현됩니다."""
-        raise NotImplementedError("This method will be implemented in Milestone 2")
+    def fetch_index_components(self, index_code: str, target_date: date, retry: bool = True) -> Set[str]:
+        """지정된 지수(index_code)의 구성종목 코드 세트를 조회합니다."""
+        # 1. 지수 코드에 따른 파라미터 매핑
+        code_upper = index_code.upper().replace("_", "")
+        if code_upper in ("KOSPI200", "KOSPI 200"):
+            ind_idx = "1"
+            ind_idx2 = "028"
+            idx_name = "코스피 200"
+        elif code_upper in ("KOSDAQ150", "KOSDAQ 150"):
+            ind_idx = "2"
+            ind_idx2 = "203"
+            idx_name = "코스닥 150"
+        else:
+            raise ValueError(f"[Adapter:KRX] 지원하지 않는 지수 코드입니다: {index_code}")
+
+        url = f"{self.BASE_URL}/comm/bldAttendant/getJsonData.cmd"
+        payload = {
+            'bld': 'dbms/MDC/STAT/standard/MDCSTAT00601',
+            'locale': 'ko_KR',
+            'tboxindIdx_finder_equidx0_1': idx_name,
+            'indIdx': ind_idx,
+            'indIdx2': ind_idx2,
+            'codeNmindIdx_finder_equidx0_1': idx_name,
+            'param1indIdx_finder_equidx0_1': '',
+            'trdDd': target_date.strftime('%Y%m%d'),
+            'money': '3',
+            'csvxls_isNo': 'false',
+        }
+
+        try:
+            response = self.session.post(url, data=payload, timeout=30)
+            
+            # 세션 만료 처리
+            if "LOGOUT" in response.text and retry:
+                print("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")
+                self._login()
+                return self.fetch_index_components(index_code, target_date, retry=False)
+
+            if response.status_code != 200:
+                print(f"[Adapter:KRX] 지수 구성종목 조회 HTTP 에러: {response.status_code}")
+                return set()
+            
+            data = response.json()
+            rows = data.get('output', []) or data.get('OutBlock_1', [])
+            
+            # 각 종목코드(ISU_SRT_CD)를 추출하여 세트로 반환
+            components = {row.get('ISU_SRT_CD') for row in rows if row.get('ISU_SRT_CD')}
+            return components
+
+        except Exception as e:
+            print(f"[Adapter:KRX] 지수 구성종목 조회 예외 발생: {e}")
+            return set()
+
 

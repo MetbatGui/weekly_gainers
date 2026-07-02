@@ -128,3 +128,40 @@ def test_fetch_period_data_session_expired_retry_mock():
         assert mock_post.call_count == 2
         assert len(items) == 1
         assert items[0].symbol_name == "삼성전자"
+
+def test_fetch_index_components_success_mock():
+    """Mock HTTP 응답을 활용해 KrxStockDataAdapter가 지수 구성종목을 성공적으로 조회 및 파싱하는지 검증"""
+    adapter = KrxStockDataAdapter()
+    target_date = date(2026, 6, 30)
+
+    mock_response_data = {
+        "output": [
+            {"ISU_SRT_CD": "005930", "ISU_ABBRV": "삼성전자"},
+            {"ISU_SRT_CD": "000660", "ISU_ABBRV": "SK하이닉스"}
+        ]
+    }
+
+    with patch.object(adapter.session, 'post') as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "SUCCESS"
+        mock_response.json.return_value = mock_response_data
+        mock_post.return_value = mock_response
+
+        # 코스피 200
+        components = adapter.fetch_index_components("KOSPI_200", target_date)
+
+        mock_post.assert_called_once()
+        called_args, called_kwargs = mock_post.call_args
+        
+        # 페이로드 검증
+        payload = called_kwargs.get('data', {})
+        assert payload.get('bld') == 'dbms/MDC/STAT/standard/MDCSTAT00601'
+        assert payload.get('indIdx') == '1'
+        assert payload.get('indIdx2') == '028'
+        assert payload.get('tboxindIdx_finder_equidx0_1') == '코스피 200'
+
+        # 결과 검증
+        assert len(components) == 2
+        assert components == {"005930", "000660"}
+
