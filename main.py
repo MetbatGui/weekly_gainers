@@ -10,7 +10,7 @@ sys.path.append(os.path.join(os.getcwd(), 'src'))
 from application.services.calendar_service import CalendarService
 from application.services.weekly_gainer_service import WeeklyGainerService
 from infra.adapters.krx_adapter import KrxStockDataAdapter
-from infra.storage.parquet_repository import ParquetWeeklyGainerRepository
+from infra.storage.google_drive_repository import GoogleDriveReportStorageAdapter
 from infra.storage.google_drive_adapter import GoogleDriveAdapter
 
 def main():
@@ -71,11 +71,11 @@ def main():
 
     krx_adapter = KrxStockDataAdapter()
     
-    # 저장소 격리 주입 (주간/월간)
-    repository_weekly = ParquetWeeklyGainerRepository(base_path="data/weekly_gainers", period_type="WEEKLY")
-    repository_monthly = ParquetWeeklyGainerRepository(base_path="data/weekly_gainers", period_type="MONTHLY")
-    
     gdrive_adapter = GoogleDriveAdapter()
+    
+    # 구글 드라이브 기반 SSOT 저장소 주입 (로컬 파일 완전 제거)
+    repository_weekly = GoogleDriveReportStorageAdapter(uploader=gdrive_adapter, period_type="WEEKLY")
+    repository_monthly = GoogleDriveReportStorageAdapter(uploader=gdrive_adapter, period_type="MONTHLY")
     
     service = WeeklyGainerService(
         calendar=calendar_service,
