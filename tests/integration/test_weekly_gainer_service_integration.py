@@ -116,8 +116,8 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         assert loaded_event.items[0].symbol_name == "삼성전자"
         assert loaded_event.items[0].change_rate == 21.43
 
-        # 업로더 기록 검증 (엑셀 리포트, Parquet 데이터, 매니페스트 등 총 3건 확인)
-        assert len(uploader.uploaded_files) == 3
+        # 업로더 기록 검증 (엑셀 리포트, 매니페스트 등 총 2건 확인)
+        assert len(uploader.uploaded_files) == 2
         
         # 엑셀 파일 찾기
         excel_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".xlsx")), None)
@@ -125,10 +125,6 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         excel_filename, excel_remote_path, excel_content = excel_upload
         assert "weekly_gainers_2026_W26" in excel_filename
         assert isinstance(excel_content, bytes)
-        
-        # Parquet 파일 찾기
-        parquet_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".parquet")), None)
-        assert parquet_upload is not None
         
         # 매니페스트 파일 찾기
         manifest_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".json")), None)

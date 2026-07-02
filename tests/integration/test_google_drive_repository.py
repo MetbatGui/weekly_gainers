@@ -82,30 +82,42 @@ def test_google_drive_repository_integration_flow():
                 "last_trading_day": "2026-06-26",
                 "status": "COMPLETED",
                 "total_count": 100,
-                "filename": "weekly_gainers_2026_W26.parquet",
+                "filename": "weekly_gainers_2026_W26.xlsx",
                 "fingerprint": "dummy_fp"
             }
         }
         
-        # 4-1. Parquet mock 파일 작성
-        df_dummy = pd.DataFrame([item.__dict__])
-        parquet_buffer = io.BytesIO()
-        df_dummy.to_parquet(parquet_buffer, index=False)
-        parquet_bytes = parquet_buffer.getvalue()
+        # 4-1. Excel mock 파일 작성
+        df_dummy = pd.DataFrame([{
+            '종목코드': '005930',
+            '종목명': '삼성전자',
+            '시작일': '2026-06-22',
+            '기준가': 70000.0,
+            '종료일': '2026-06-26',
+            '종가': 85000.0,
+            '대비': 15000.0,
+            '등락률': 21.43,
+            '거래량': 100000,
+            '거래대금': 8500000000
+        }])
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df_dummy.to_excel(writer, sheet_name="전체_등락종목", index=False)
+        excel_bytes = excel_buffer.getvalue()
 
         # 어댑터 다운로드 함수 모킹
         def mock_download(remote_path, filename):
             if "manifest" in filename:
                 return json.dumps(mock_manifest_data).encode("utf-8")
-            if "parquet" in filename:
-                return parquet_bytes
+            if filename.endswith(".xlsx"):
+                return excel_bytes
             return None
 
         with patch.object(gdrive_adapter, "download_file", side_effect=mock_download) as mock_dl:
             loaded_event = repo.get_by_id("2026-W26")
             
             # 다운로드 검증
-            assert mock_dl.call_count == 2 # 1차 매니페스트 + 2차 Parquet
+            assert mock_dl.call_count == 2 # 1차 매니페스트 + 2차 Excel
             
             assert loaded_event is not None
             assert loaded_event.id == "2026-W26"
