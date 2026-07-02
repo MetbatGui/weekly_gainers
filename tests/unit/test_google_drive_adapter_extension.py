@@ -1,12 +1,11 @@
 import io
 from unittest.mock import patch, MagicMock
-import pandas as pd
 import pytest
 
 from infra.storage.google_drive_adapter import GoogleDriveAdapter
 
-def test_google_drive_adapter_polymorphic_excel_generation():
-    """GoogleDriveAdapter가 다중 시트 딕셔너리와 단일 DataFrame 입력을 모두 수용하여 정상적으로 엑셀 바이너리를 컴파일하는지 검증"""
+def test_google_drive_adapter_excel_bytes_upload():
+    """GoogleDriveAdapter가 Excel 바이너리 바이트(bytes)를 입력받아 구글 드라이브로 업로드하는지 검증"""
     
     # Google API 인증 자체를 Mocking하여 인증 과정을 완벽하게 격리
     with patch.object(GoogleDriveAdapter, "_authenticate") as mock_auth:
@@ -18,50 +17,32 @@ def test_google_drive_adapter_polymorphic_excel_generation():
         
         adapter = GoogleDriveAdapter()
 
-        # 테스트용 데이터프레임
-        df_all = pd.DataFrame({"종목명": ["삼성전자"], "등락률": [21.43]})
-        df_kospi = pd.DataFrame({"종목명": ["SK하이닉스"], "등락률": [20.00]})
+        # 테스트용 엑셀 바이너리 데이터 (임의의 바이트 데이터)
+        dummy_excel_bytes = b"dummy excel file content"
 
-        # 1. 다중 시트 딕셔너리 입력 테스트
-        # 캡처를 위해 MediaIoBaseUpload를 패치하여 업로드되는 바이너리 스트림 획득
-        with patch("infra.storage.google_drive_adapter.MediaIoBaseUpload") as mock_media_upload:
+        # MediaIoBaseUpload 패치 및 폴더 경로 자동 생성 모킹
+        with patch("infra.storage.google_drive_adapter.MediaIoBaseUpload") as mock_media_upload, \
+             patch.object(adapter, "_ensure_path", return_value="mock_parent_folder_id") as mock_ensure:
+             
             success = adapter.upload_excel(
-                dfs={"All_Gainers": df_all, "KOSPI_200": df_kospi},
+                file_content=dummy_excel_bytes,
                 remote_path="test_folder",
                 filename="test_multi_sheet.xlsx"
             )
             
             assert success is True
-            # MediaIoBaseUpload 호출 확인 및 바이트 스트림 파싱 검증
+            mock_ensure.assert_called_once_with("test_folder")
+            
+            # MediaIoBaseUpload 호출 확인
             mock_media_upload.assert_called_once()
             captured_stream = mock_media_upload.call_args[0][0] # 첫 번째 인자가 io.BytesIO
             
-            # 컴파일된 바이트로부터 엑셀 시트들이 실제로 생성되었는지 판다스로 확인
+            # 스트림에 담긴 데이터가 입력된 더미 바이트와 일치하는지 검증
             captured_stream.seek(0)
-            excel_file = pd.ExcelFile(captured_stream, engine='openpyxl')
-            assert "All_Gainers" in excel_file.sheet_names
-            assert "KOSPI_200" in excel_file.sheet_names
+            assert captured_stream.read() == dummy_excel_bytes
 
-            # 각 시트 데이터 검증
-            df_read_all = pd.read_excel(excel_file, sheet_name="All_Gainers")
-            assert df_read_all.iloc[0]["종목명"] == "삼성전자"
-
-        # 2. 하위 호환성: 단일 DataFrame 직접 입력 테스트
-        with patch("infra.storage.google_drive_adapter.MediaIoBaseUpload") as mock_media_upload_single:
-            success_single = adapter.upload_excel(
-                dfs=df_all, # 딕셔너리가 아닌 단일 df를 통째로 전달 (하위 호환)
-                remote_path="test_folder",
-                filename="test_single_sheet.xlsx"
-            )
-
-            assert success_single is True
-            mock_media_upload_single.assert_called_once()
-            captured_stream_single = mock_media_upload_single.call_args[0][0]
-            
-            captured_stream_single.seek(0)
-            excel_file_single = pd.ExcelFile(captured_stream_single, engine='openpyxl')
-            # 딕셔너리가 아닌 경우 기본 시트명인 'WeeklyGainers' 또는 'Sheet1' 등으로 자동 폴백되어야 함
-            assert "WeeklyGainers" in excel_file_single.sheet_names or "Sheet1" in excel_file_single.sheet_names
-            
-            df_read_single = pd.read_excel(excel_file_single, sheet_name=excel_file_single.sheet_names[0])
-            assert df_read_single.iloc[0]["종목명"] == "삼성전자"
+            # create 호출 검증 (이제 폴더 생성이 모킹되었으므로 파일 생성 create 1회만 발생함)
+            mock_service.files().create.assert_called_once()
+            called_body = mock_service.files().create.call_args[1].get('body', {})
+            assert called_body.get('name') == 'test_multi_sheet.xlsx'
+            assert called_body.get('parents') == ['mock_parent_folder_id']

@@ -110,39 +110,15 @@ class GoogleDriveAdapter(CloudUploadPort):
             print(f"[Adapter:GoogleDrive] [Error] File upload failed: {e}")
             return False
 
-    def upload_excel(self, dfs: Union[pd.DataFrame, Dict[str, pd.DataFrame]], remote_path: str, filename: str) -> bool:
-        """DataFrame 또는 다중 시트 딕셔너리를 Excel로 변환하여 구글 드라이브에 업로드합니다."""
+    def upload_excel(self, file_content: bytes, remote_path: str, filename: str) -> bool:
+        """전달받은 Excel 바이너리(bytes) 데이터를 구글 드라이브에 업로드합니다."""
         try:
-            # 1. 입력 데이터 다형성 처리 (하위 호환 지원)
-            if isinstance(dfs, pd.DataFrame):
-                sheets = {"WeeklyGainers": dfs}
-            elif isinstance(dfs, dict):
-                sheets = dfs
-            else:
-                raise TypeError("dfs must be a pandas DataFrame or a dictionary of DataFrames")
+            output = io.BytesIO(file_content)
 
-            # 2. 메모리 내 다중 시트 엑셀 파일 생성
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                for sheet_name, df in sheets.items():
-                    df.to_excel(writer, index=False, sheet_name=sheet_name)
-                    
-                    # 각 시트의 가독성 개선: 열 너비 자동 조절
-                    worksheet = writer.sheets[sheet_name]
-                    for i, col in enumerate(df.columns):
-                        if len(df) > 0:
-                            max_len = df[col].astype(str).str.len().max()
-                        else:
-                            max_len = 0
-                        column_len = max(max_len, len(col)) + 2
-                        worksheet.set_column(i, i, column_len)
-                
-            output.seek(0)
-
-            # 3. 업로드 위치(부모 폴더) 확보
+            # 1. 업로드 위치(부모 폴더) 확보
             parent_id = self._ensure_path(remote_path)
 
-            # 4. 기존 파일 존재 여부 확인 (있으면 덮어쓰기)
+            # 2. 기존 파일 존재 여부 확인 (있으면 덮어쓰기)
             query = f"name = '{filename}' and '{parent_id}' in parents and trashed = false"
             results = self.drive_service.files().list(q=query, fields="files(id)").execute()
             existing_files = results.get('files', [])
@@ -162,3 +138,4 @@ class GoogleDriveAdapter(CloudUploadPort):
         except Exception as e:
             print(f"[Adapter:GoogleDrive] [Error] Upload failed: {e}")
             return False
+

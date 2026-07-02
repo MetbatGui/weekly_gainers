@@ -62,7 +62,7 @@ class CloudUploadPort(ABC):
     """생성된 엑셀 리포트 및 메가데이터 파일을 클라우드(구글 드라이브)에 업로드하는 인터페이스."""
 
     @abstractmethod
-    def upload_excel(self, dfs: dict[str, pd.DataFrame], remote_path: str, filename: str) -> bool:
+    def upload_excel(self, file_content: bytes, remote_path: str, filename: str) -> bool:
         pass
 
     @abstractmethod

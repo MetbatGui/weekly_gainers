@@ -68,8 +68,8 @@ class StubUploader(CloudUploadPort):
     def __init__(self):
         self.uploaded_files = []
 
-    def upload_excel(self, dfs: dict[str, pd.DataFrame], remote_path: str, filename: str) -> bool:
-        self.uploaded_files.append((filename, remote_path, dfs))
+    def upload_excel(self, file_content: bytes, remote_path: str, filename: str) -> bool:
+        self.uploaded_files.append((filename, remote_path, file_content))
         return True
 
     def upload_file(self, local_path: str, remote_path: str, filename: str, mimetype: str = 'application/octet-stream') -> bool:
@@ -84,6 +84,7 @@ class StubUploader(CloudUploadPort):
 
 def test_service_execution_with_injected_ports():
     """WeeklyGainerService가 구체 클래스가 아닌 포트에 의존하여 정상적으로 동작하는지 검증"""
+    import io
     calendar = StubCalendar()
     stock_data = StubStockData()
     repository = StubRepository()
@@ -109,9 +110,16 @@ def test_service_execution_with_injected_ports():
 
     # 구글 드라이브 업로더 호출 기록 확인
     assert len(uploader.uploaded_files) == 1
-    filename, remote_path, df = uploader.uploaded_files[0]
+    filename, remote_path, file_content = uploader.uploaded_files[0]
     assert "weekly_gainers_2026_W26" in filename
-    assert isinstance(df, pd.DataFrame)
+    assert isinstance(file_content, bytes)
+    
+    # 엑셀 복원 및 검증 (다중 시트 시나리오에서는 전체 등락 등이 별도 시트가 됨)
+    excel_file = pd.ExcelFile(io.BytesIO(file_content), engine='openpyxl')
+    # 서비스 로직이 다중 시트로 개편되므로, 첫 시트를 읽음
+    first_sheet = excel_file.sheet_names[0]
+    df = pd.read_excel(excel_file, sheet_name=first_sheet)
     # 컬럼이 한글로 rename 됨: '종목명'
     assert df.iloc[0]['종목명'] == "삼성전자"
+
 
