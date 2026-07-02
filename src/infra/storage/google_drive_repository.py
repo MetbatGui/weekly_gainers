@@ -38,6 +38,11 @@ class GoogleDriveReportStorageAdapter(ReportStoragePort):
         else:
             return f"event_manifest_{year}.json"
 
+    def _get_manifest_path(self, year: int) -> Path:
+        """구글 드라이브 매니페스트에 대응하는 로컬 가상 임시 경로를 반환합니다."""
+        filename = self._get_manifest_name(year)
+        return Path(tempfile.gettempdir()) / filename
+
     def _load_manifest(self, year: int) -> dict:
         """구글 드라이브로부터 해당 연도의 매니페스트를 다운로드하여 파싱합니다."""
         try:

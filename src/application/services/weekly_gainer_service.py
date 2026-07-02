@@ -221,14 +221,16 @@ class WeeklyGainerService:
             print(f"--- 2단계: 이번 주({current_year}-W{current_week:02d}) 실시간 업데이트 시도 ---")
             self.collect_week(current_year, current_week, is_final=False)
 
-            manifest_file = self.repo._get_manifest_path(current_year)
-            print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
-            self.gdrive.upload_file(
-                local_path=str(manifest_file),
-                remote_path=str(current_year),
-                filename=manifest_file.name,
-                mimetype="application/json"
-            )
+            if hasattr(self.repo, "_get_manifest_path"):
+                manifest_file = self.repo._get_manifest_path(current_year)
+                if manifest_file.exists():
+                    print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
+                    self.gdrive.upload_file(
+                        local_path=str(manifest_file),
+                        remote_path=str(current_year),
+                        filename=manifest_file.name,
+                        mimetype="application/json"
+                    )
         else:  # MONTHLY
             current_year = today.year
             current_month = today.month
@@ -246,14 +248,16 @@ class WeeklyGainerService:
             print(f"--- 2단계: 이번 달({current_year}-{current_month:02d}월) 실시간 업데이트 시도 ---")
             self.collect_month(current_year, current_month, is_final=False)
 
-            manifest_file = self.repo_monthly._get_manifest_path(current_year)
-            print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
-            self.gdrive.upload_file(
-                local_path=str(manifest_file),
-                remote_path=str(current_year),
-                filename=manifest_file.name,
-                mimetype="application/json"
-            )
+            if hasattr(self.repo_monthly, "_get_manifest_path"):
+                manifest_file = self.repo_monthly._get_manifest_path(current_year)
+                if manifest_file.exists():
+                    print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
+                    self.gdrive.upload_file(
+                        local_path=str(manifest_file),
+                        remote_path=str(current_year),
+                        filename=manifest_file.name,
+                        mimetype="application/json"
+                    )
 
         print(f"[Pipeline] 모든 동기화 작업 완료!\n")
 
