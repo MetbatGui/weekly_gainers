@@ -20,8 +20,17 @@ class StubUploader(CloudUploadPort):
         return True
 
     def upload_file(self, local_path: str, remote_path: str, filename: str, mimetype: str = 'application/octet-stream') -> bool:
-        self.uploaded_files.append((filename, remote_path, local_path))
+        # 락이 풀린 후 파일을 읽어야 하므로, 경로만 저장하지 않고 데이터 자체를 메모리에 복사해 두는 것이 안전함
+        with open(local_path, "rb") as f:
+            content_data = f.read()
+        self.uploaded_files.append((filename, remote_path, content_data))
         return True
+
+    def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
+        for f_name, r_path, content in self.uploaded_files:
+            if f_name == filename and r_path == remote_path:
+                return content
+        return None
 
 def test_weekly_gainer_service_integration_flow(tmp_path):
     """실제 서비스에 실제 인프라 어댑터들을 주입하고, HTTP만 모킹한 상태에서 전체 주간 수집 파이프라인 통합 흐름 검증"""
@@ -33,14 +42,14 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
     # 실제 KRX 어댑터
     stock_data = KrxStockDataAdapter()
     
-    # 실제 Parquet 저장소 (tmp_path를 주입하여 격리)
-    base_path = tmp_path / "data" / "weekly_gainers"
-    repository = ParquetWeeklyGainerRepository(base_path=str(base_path))
-    
     # 구글 드라이브 업로더 스텁
     uploader = StubUploader()
+    
+    # 구글 드라이브 기반 저장소 (로컬 대신 드라이브 SSOT 사용)
+    from infra.storage.google_drive_repository import GoogleDriveReportStorageAdapter
+    repository = GoogleDriveReportStorageAdapter(uploader=uploader, period_type="WEEKLY")
 
-    # 2. 서비스 인스턴스에 실제 어댑터들 주입 (마일스톤 1 의존성 주입 완성형)
+    # 2. 서비스 인스턴스에 실제 어댑터들 주입 (의존성 주입 완료형)
     service = WeeklyGainerService(
         calendar=calendar,
         stock_data=stock_data,
@@ -92,7 +101,7 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         # 지수 구성종목이 총 4번 호출되는지 검증 (시작일/종료일 x K200/K150)
         assert mock_idx.call_count == 4
         
-        # 실제 Parquet 저장소에 물리 파일 및 매니페스트가 생성되었는지 검증
+        # 구글 드라이브 스텁에 물리 매니페스트가 생성되었는지 검증
         event_id = "2026-W26"
         assert repository.exists(event_id) is True
         
@@ -107,14 +116,26 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         assert loaded_event.items[0].symbol_name == "삼성전자"
         assert loaded_event.items[0].change_rate == 21.43
 
-        # 업로더 기록 검증 (bytes 엑셀 업로드 수행 확인)
-        assert len(uploader.uploaded_files) == 1
-        filename, remote_path, file_content = uploader.uploaded_files[0]
-        assert "weekly_gainers_2026_W26" in filename
-        assert isinstance(file_content, bytes)
+        # 업로더 기록 검증 (엑셀 리포트, Parquet 데이터, 매니페스트 등 총 3건 확인)
+        assert len(uploader.uploaded_files) == 3
+        
+        # 엑셀 파일 찾기
+        excel_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".xlsx")), None)
+        assert excel_upload is not None
+        excel_filename, excel_remote_path, excel_content = excel_upload
+        assert "weekly_gainers_2026_W26" in excel_filename
+        assert isinstance(excel_content, bytes)
+        
+        # Parquet 파일 찾기
+        parquet_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".parquet")), None)
+        assert parquet_upload is not None
+        
+        # 매니페스트 파일 찾기
+        manifest_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".json")), None)
+        assert manifest_upload is not None
         
         # 엑셀 데이터프레임 복원 및 시트별 검증
-        excel_file = pd.ExcelFile(io.BytesIO(file_content), engine='openpyxl')
+        excel_file = pd.ExcelFile(io.BytesIO(excel_content), engine='openpyxl')
         assert "전체_등락종목" in excel_file.sheet_names
         assert "KOSPI_200" in excel_file.sheet_names
         assert "KOSDAQ_150" in excel_file.sheet_names

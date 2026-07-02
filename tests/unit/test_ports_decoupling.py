@@ -76,6 +76,18 @@ class StubUploader(CloudUploadPort):
         self.uploaded_files.append((filename, remote_path, local_path))
         return True
 
+    def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
+        for f_name, r_path, content in self.uploaded_files:
+            if f_name == filename and r_path == remote_path:
+                if isinstance(content, bytes):
+                    return content
+                try:
+                    with open(content, "rb") as f:
+                        return f.read()
+                except Exception:
+                    pass
+        return None
+
 
 
 # -------------------------------------------------------------
