@@ -40,7 +40,7 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
     calendar = CalendarService()
     
     # 실제 KRX 어댑터
-    stock_data = KrxStockDataAdapter()
+    stock_data = KrxStockDataAdapter(cache_dir=str(tmp_path / "cache"))
     
     # 구글 드라이브 업로더 스텁
     uploader = StubUploader()

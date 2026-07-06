@@ -8,13 +8,13 @@ class GainerFilter:
         self,
         start_components: Optional[Set[str]] = None,
         end_components: Optional[Set[str]] = None,
-        threshold: float = 20.0
+        threshold: Optional[float] = 20.0
     ):
         """
         Args:
             start_components: 시작일 기준 지수 구성종목 코드 세트 (None이면 필터링 생략)
             end_components: 종료일 기준 지수 구성종목 코드 세트 (None이면 필터링 생략)
-            threshold: 등락률 하한값 (%)
+            threshold: 등락률 하한값 (%) (None이면 등락률 필터링 스킵)
         """
         self.threshold = threshold
         
@@ -30,8 +30,8 @@ class GainerFilter:
         """등락률 조건 및 지수 합집합 풀 포함 여부를 기준으로 필터링을 수행합니다."""
         filtered = []
         for item in items:
-            # 1. 등락률 20% 이상 (threshold 기준)
-            if item.change_rate < self.threshold:
+            # 1. 등락률 이상 (threshold가 지정된 경우만 검증)
+            if self.threshold is not None and item.change_rate < self.threshold:
                 continue
                 
             # 2. 지수 합집합 풀이 구성된 경우, 포함 여부 검증

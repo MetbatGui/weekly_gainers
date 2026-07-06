@@ -95,19 +95,19 @@ class WeeklyGainerService:
 
         # 4. 시작일과 마지막일의 지수구성종목 수집 및 합집합 필터 구성
         try:
-            # KOSPI 200 구성종목 합집합 필터
+            # KOSPI 200 구성종목 합집합 필터 (등락률 필터 없음)
             start_k200 = self.krx.fetch_index_components("KOSPI_200", trading_start)
             end_k200 = self.krx.fetch_index_components("KOSPI_200", trading_end)
-            filter_k200 = GainerFilter(start_k200, end_k200, threshold=20.0)
+            filter_k200 = GainerFilter(start_k200, end_k200, threshold=None)
             
-            # KOSDAQ 150 구성종목 합집합 필터
+            # KOSDAQ 150 구성종목 합집합 필터 (등락률 필터 없음)
             start_k150 = self.krx.fetch_index_components("KOSDAQ_150", trading_start)
             end_k150 = self.krx.fetch_index_components("KOSDAQ_150", trading_end)
-            filter_k150 = GainerFilter(start_k150, end_k150, threshold=20.0)
+            filter_k150 = GainerFilter(start_k150, end_k150, threshold=None)
         except Exception as e:
             print(f"[Service] 지수 구성종목 수집 중 에러 발생 (건너뛰거나 빈 리스트로 처리): {e}")
-            filter_k200 = GainerFilter(set(), set(), threshold=20.0)
-            filter_k150 = GainerFilter(set(), set(), threshold=20.0)
+            filter_k200 = GainerFilter(set(), set(), threshold=None)
+            filter_k150 = GainerFilter(set(), set(), threshold=None)
 
         filter_all = GainerFilter(None, None, threshold=20.0)
 

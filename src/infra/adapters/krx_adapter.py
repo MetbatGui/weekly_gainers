@@ -1,7 +1,9 @@
 import requests
 import time
+import json
 from datetime import date
 from typing import List, Optional, Set
+from pathlib import Path
 from domain.models import WeeklyGainerItem
 from domain.ports import StockDataPort
 
@@ -19,7 +21,7 @@ class KrxStockDataAdapter(StockDataPort):
     
     BASE_URL = "https://data.krx.co.kr"
 
-    def __init__(self):
+    def __init__(self, cache_dir: Optional[str] = None):
         self.session = requests.Session()
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
         self.session.headers.update({
@@ -31,6 +33,7 @@ class KrxStockDataAdapter(StockDataPort):
             'X-Requested-With': 'XMLHttpRequest'
         })
         
+        self.cache_dir = Path(cache_dir) if cache_dir else Path("data/weekly_gainers/cache")
         self.username = os.getenv("KRX_USERNAME")
         self.password = os.getenv("KRX_PASSWORD")
         self.is_logged_in = False
@@ -155,7 +158,26 @@ class KrxStockDataAdapter(StockDataPort):
             return []
 
     def fetch_index_components(self, index_code: str, target_date: date, retry: bool = True) -> Set[str]:
-        """지정된 지수(index_code)의 구성종목 코드 세트를 조회합니다."""
+        """지정된 지수(index_code)의 구성종목 코드 세트를 조회합니다. (파일 기반 캐시 적용)"""
+        # 캐시 검사
+        cache_key = f"{index_code.upper().replace('_', '')}_{target_date.strftime('%Y%m%d')}"
+        cache_file = self.cache_dir / f"index_components_{cache_key}.json"
+        
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cache_data = json.load(f)
+                
+                # 유효기간 확인 (생성일이 오늘과 동일한지 검증)
+                today_str = date.today().isoformat()
+                if cache_data.get("created_at") == today_str:
+                    print(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 히트 (생성일: {today_str})")
+                    return set(cache_data.get("components", []))
+                else:
+                    print(f"[Adapter:KRX] {index_code} {target_date} 캐시 만료됨 (생성일: {cache_data.get('created_at')}, 오늘: {today_str})")
+            except Exception as e:
+                print(f"[Adapter:KRX] 캐시 파일 읽기 실패: {e}")
+
         # 1. 지수 코드에 따른 파라미터 매핑
         code_upper = index_code.upper().replace("_", "")
         if code_upper in ("KOSPI200", "KOSPI 200"):
@@ -201,6 +223,22 @@ class KrxStockDataAdapter(StockDataPort):
             
             # 각 종목코드(ISU_SRT_CD)를 추출하여 세트로 반환
             components = {row.get('ISU_SRT_CD') for row in rows if row.get('ISU_SRT_CD')}
+            
+            # 캐시 저장
+            if components:
+                try:
+                    self.cache_dir.mkdir(parents=True, exist_ok=True)
+                    today_str = date.today().isoformat()
+                    cache_data = {
+                        "created_at": today_str,
+                        "components": list(components)
+                    }
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(cache_data, f, indent=2, ensure_ascii=False)
+                    print(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 저장 완료 (생성일: {today_str})")
+                except Exception as e:
+                    print(f"[Adapter:KRX] 캐시 파일 저장 실패: {e}")
+
             return components
 
         except Exception as e:
