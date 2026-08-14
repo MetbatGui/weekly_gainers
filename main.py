@@ -88,8 +88,8 @@ def main():
     try:
         # 액션별 분기 실행
         if args.action == "sync":
-            # 동기화 파이프라인 기동
-            service.sync_pipeline(period_type=args.period)
+            # 동기화 파이프라인 기동 (주간+월간 동시 처리, --period 무시)
+            service.sync_pipeline()
             
         elif args.action == "collect":
             if not args.year or not args.value:

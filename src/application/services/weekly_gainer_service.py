@@ -203,61 +203,51 @@ class WeeklyGainerService:
         """월간 수집 메서드."""
         return self.collect_period("MONTHLY", year, month, force, is_final)
 
-    def sync_pipeline(self, period_type: str = "WEEKLY"):
-        """전체 수집 파이프라인 실행: 지난 기간 확정 + 이번 기간 업데이트."""
+    def _sync_manifest(self, repo: ReportStoragePort, year: int):
+        """저장소가 매니페스트 파일을 쓰는 구현체(Parquet 등)인 경우 구글 드라이브로 동기화."""
+        if not hasattr(repo, "_get_manifest_path"):
+            return
+        manifest_file = repo._get_manifest_path(year)
+        if manifest_file.exists():
+            print(f"--- 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
+            self.gdrive.upload_file(
+                local_path=str(manifest_file),
+                remote_path=str(year),
+                filename=manifest_file.name,
+                mimetype="application/json"
+            )
+
+    def sync_pipeline(self):
+        """전체 수집 파이프라인 실행: 주간+월간 각각 지난 기간 확정 + 이번 기간 업데이트."""
         today = date.today()
-        period_type = period_type.upper()
-        
-        print(f"\n[Pipeline] {period_type} 수집 동기화 시작 (기준일: {today})")
+        print(f"\n[Pipeline] 수집 동기화 시작 (기준일: {today})")
 
-        if period_type == "WEEKLY":
-            current_year, current_week, _ = today.isocalendar()
-            last_week_date = today - timedelta(weeks=1)
-            prev_year, prev_week, _ = last_week_date.isocalendar()
-            
-            print(f"--- 1단계: 지난주({prev_year}-W{prev_week:02d}) 최종 확정 시도 ---")
-            self.collect_week(prev_year, prev_week, is_final=True)
+        # 주간
+        current_year, current_week, _ = today.isocalendar()
+        prev_year, prev_week, _ = (today - timedelta(weeks=1)).isocalendar()
 
-            print(f"--- 2단계: 이번 주({current_year}-W{current_week:02d}) 실시간 업데이트 시도 ---")
-            self.collect_week(current_year, current_week, is_final=False)
+        print(f"--- 주간: 지난주({prev_year}-W{prev_week:02d}) 최종 확정 시도 ---")
+        self.collect_week(prev_year, prev_week, is_final=True)
 
-            if hasattr(self.repo, "_get_manifest_path"):
-                manifest_file = self.repo._get_manifest_path(current_year)
-                if manifest_file.exists():
-                    print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
-                    self.gdrive.upload_file(
-                        local_path=str(manifest_file),
-                        remote_path=str(current_year),
-                        filename=manifest_file.name,
-                        mimetype="application/json"
-                    )
-        else:  # MONTHLY
-            current_year = today.year
-            current_month = today.month
-            
-            if current_month == 1:
-                prev_year = current_year - 1
-                prev_month = 12
-            else:
-                prev_year = current_year
-                prev_month = current_month - 1
+        print(f"--- 주간: 이번 주({current_year}-W{current_week:02d}) 실시간 업데이트 시도 ---")
+        self.collect_week(current_year, current_week, is_final=False)
 
-            print(f"--- 1단계: 지난달({prev_year}-{prev_month:02d}월) 최종 확정 시도 ---")
-            self.collect_month(prev_year, prev_month, is_final=True)
+        self._sync_manifest(self.repo, current_year)
 
-            print(f"--- 2단계: 이번 달({current_year}-{current_month:02d}월) 실시간 업데이트 시도 ---")
-            self.collect_month(current_year, current_month, is_final=False)
+        # 월간
+        current_month_year, current_month = today.year, today.month
+        if current_month == 1:
+            prev_month_year, prev_month = current_month_year - 1, 12
+        else:
+            prev_month_year, prev_month = current_month_year, current_month - 1
 
-            if hasattr(self.repo_monthly, "_get_manifest_path"):
-                manifest_file = self.repo_monthly._get_manifest_path(current_year)
-                if manifest_file.exists():
-                    print(f"--- 3단계: 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
-                    self.gdrive.upload_file(
-                        local_path=str(manifest_file),
-                        remote_path=str(current_year),
-                        filename=manifest_file.name,
-                        mimetype="application/json"
-                    )
+        print(f"--- 월간: 지난달({prev_month_year}-{prev_month:02d}월) 최종 확정 시도 ---")
+        self.collect_month(prev_month_year, prev_month, is_final=True)
+
+        print(f"--- 월간: 이번 달({current_month_year}-{current_month:02d}월) 실시간 업데이트 시도 ---")
+        self.collect_month(current_month_year, current_month, is_final=False)
+
+        self._sync_manifest(self.repo_monthly, current_month_year)
 
         print(f"[Pipeline] 모든 동기화 작업 완료!\n")
 

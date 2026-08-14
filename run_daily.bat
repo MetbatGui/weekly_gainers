@@ -7,14 +7,9 @@ echo   Weekly & Monthly Gainer Data Pipeline: Daily Syncing...
 echo ===================================================
 echo.
 
-:: 1. 주간 데이터 동기화
-echo [INFO] Running Weekly Sync...
-uv run main.py --period weekly
-
-echo.
-:: 2. 월간 데이터 동기화
-echo [INFO] Running Monthly Sync...
-uv run main.py --period monthly
+:: 주간+월간 데이터 동기화 (단일 오케스트레이터)
+echo [INFO] Running Sync...
+uv run main.py
 
 echo.
 echo ===================================================
