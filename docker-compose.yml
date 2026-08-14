@@ -2,6 +2,10 @@ services:
   gainer:
     build: .
     image: weekly-gainers:latest
+    # .env는 파일 bind mount로 넘긴다(env_file 아님) - cron이 스폰하는 잡은 컨테이너
+    # 프로세스의 OS 환경변수를 상속받지 않지만, main.py의 load_dotenv()가 이 파일을
+    # 매번 직접 읽으므로 cron 잡 안에서도 정상 로드된다. 단, 로컬에 .env 파일이 실제로
+    # 존재해야 함 - 없으면 Docker가 빈 디렉토리를 대신 마운트해 로드가 조용히 실패한다.
     volumes:
       - ./db:/app/db
       - ./secrets:/app/secrets
@@ -21,6 +25,10 @@ services:
     entrypoint: ["/app/docker/cron-entrypoint.sh"]
     user: root
     restart: unless-stopped
+    # .env는 파일 bind mount로 넘긴다(env_file 아님) - cron이 스폰하는 잡은 컨테이너
+    # 프로세스의 OS 환경변수를 상속받지 않지만, main.py의 load_dotenv()가 이 파일을
+    # 매번 직접 읽으므로 cron 잡 안에서도 정상 로드된다. 단, 로컬에 .env 파일이 실제로
+    # 존재해야 함 - 없으면 Docker가 빈 디렉토리를 대신 마운트해 로드가 조용히 실패한다.
     volumes:
       - ./db:/app/db
       - ./secrets:/app/secrets

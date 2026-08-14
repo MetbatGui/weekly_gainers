@@ -11,6 +11,18 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
+# Cron (컨테이너 내장 스케줄러 - docker-compose의 gainer-cron 서비스에서 사용).
+# COPY . /app보다 먼저 설치해서 앱 소스 변경 시 이 레이어가 재실행되지 않게 함.
+# TZ는 /etc/localtime 심볼릭 링크로 OS 레벨에 직접 굽는다 - cron이 스폰하는 잡
+# 프로세스는 Dockerfile의 ENV를 상속받지 않으므로(PATH/PLAYWRIGHT_BROWSERS_PATH와
+# 같은 문제, docs 가이드 참고), ENV TZ만 설정해서는 cron 잡 안에서 반영되지 않음.
+ENV TZ=Asia/Seoul
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends cron tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install the project's dependencies using the lockfile and settings
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
@@ -22,12 +34,6 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
-
-# Cron (컨테이너 내장 스케줄러 - docker-compose의 gainer-cron 서비스에서 사용)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends cron tzdata \
-    && rm -rf /var/lib/apt/lists/*
-ENV TZ=Asia/Seoul
 
 COPY docker/crontab /etc/cron.d/gainer-cron
 RUN chmod 0644 /etc/cron.d/gainer-cron \
