@@ -1,0 +1,44 @@
+services:
+  gainer:
+    build: .
+    image: weekly-gainers:latest
+    # .env는 파일 bind mount로 넘긴다(env_file 아님) - cron이 스폰하는 잡은 컨테이너
+    # 프로세스의 OS 환경변수를 상속받지 않지만, main.py의 load_dotenv()가 이 파일을
+    # 매번 직접 읽으므로 cron 잡 안에서도 정상 로드된다. 단, 로컬에 .env 파일이 실제로
+    # 존재해야 함 - 없으면 Docker가 빈 디렉토리를 대신 마운트해 로드가 조용히 실패한다.
+    volumes:
+      - ./db:/app/db
+      - ./secrets:/app/secrets
+      - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Seoul
+    # 실행 예시:
+    # docker-compose run --rm gainer python main.py --action sync
+    # docker-compose run --rm gainer python main.py --action collect --period weekly --year 2026 --value 26
+    # docker-compose run --rm gainer python main.py --action backfill --period weekly --year 2026
+
+  # 컨테이너 내장 cron으로 daily sync를 주기 실행 (스케줄은 docker/crontab 참고).
+  # cron 데몬 기동에 root 권한이 필요해 user를 root로 오버라이드함.
+  gainer-cron:
+    build: .
+    image: weekly-gainers:latest
+    entrypoint: ["/app/docker/cron-entrypoint.sh"]
+    user: root
+    restart: unless-stopped
+    # .env는 파일 bind mount로 넘긴다(env_file 아님) - cron이 스폰하는 잡은 컨테이너
+    # 프로세스의 OS 환경변수를 상속받지 않지만, main.py의 load_dotenv()가 이 파일을
+    # 매번 직접 읽으므로 cron 잡 안에서도 정상 로드된다. 단, 로컬에 .env 파일이 실제로
+    # 존재해야 함 - 없으면 Docker가 빈 디렉토리를 대신 마운트해 로드가 조용히 실패한다.
+    volumes:
+      - ./db:/app/db
+      - ./secrets:/app/secrets
+      - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Seoul
+    # 반영구 운영 대비 - json-file 드라이버는 기본적으로 로그 크기 제한이 없어
+    # 계속 커짐. 순수 컨테이너 stdout(cron 출력) 캡처분만 여기서 막는다.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
