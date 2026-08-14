@@ -1,0 +1,36 @@
+services:
+  gainer:
+    build: .
+    image: weekly-gainers:latest
+    volumes:
+      - ./db:/app/db
+      - ./secrets:/app/secrets
+      - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Seoul
+    # 실행 예시:
+    # docker-compose run --rm gainer python main.py --action sync
+    # docker-compose run --rm gainer python main.py --action collect --period weekly --year 2026 --value 26
+    # docker-compose run --rm gainer python main.py --action backfill --period weekly --year 2026
+
+  # 컨테이너 내장 cron으로 daily sync를 주기 실행 (스케줄은 docker/crontab 참고).
+  # cron 데몬 기동에 root 권한이 필요해 user를 root로 오버라이드함.
+  gainer-cron:
+    build: .
+    image: weekly-gainers:latest
+    entrypoint: ["/app/docker/cron-entrypoint.sh"]
+    user: root
+    restart: unless-stopped
+    volumes:
+      - ./db:/app/db
+      - ./secrets:/app/secrets
+      - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Seoul
+    # 반영구 운영 대비 - json-file 드라이버는 기본적으로 로그 크기 제한이 없어
+    # 계속 커짐. 순수 컨테이너 stdout(cron 출력) 캡처분만 여기서 막는다.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
