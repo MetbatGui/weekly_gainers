@@ -128,3 +128,63 @@ def test_run_daily_sync_also_syncs_prev_year_at_year_boundary():
 
     mock_sync_db.assert_any_call("MONTHLY", 2027)
     mock_sync_db.assert_any_call("MONTHLY", 2026)
+
+
+def test_run_daily_sync_backfills_gap_weeks_and_records_last_sync_date():
+    """last_sync_date가 오래됐으면 표준 지난주 이전 주차들도 추가로 수집하고, 끝에 오늘 날짜를 기록한다."""
+    service, orchestrator = _build_orchestrator()
+    injected_today = date(2026, 6, 26)  # 2026-W26
+
+    with patch.object(service, "collect_week", return_value=True) as mock_week, \
+         patch.object(service, "collect_month", return_value=True), \
+         patch.object(service, "sync_manifest", return_value=None), \
+         patch.object(service, "sync_db_to_drive", return_value=True), \
+         patch.object(service, "get_last_sync_date", return_value=date(2026, 6, 1)) as mock_get_sync, \
+         patch.object(service, "set_last_sync_date") as mock_set_sync:
+        orchestrator.run_daily_sync(today=injected_today)
+
+    mock_get_sync.assert_any_call("WEEKLY")
+
+    # 갭 백필(W23, W24) + 표준 지난주(W25) + 표준 이번주(W26) = 4회
+    mock_week.assert_any_call(2026, 23, is_final=True)
+    mock_week.assert_any_call(2026, 24, is_final=True)
+    mock_week.assert_any_call(2026, 25, is_final=True)
+    mock_week.assert_any_call(2026, 26, is_final=False)
+    assert mock_week.call_count == 4
+
+    mock_set_sync.assert_any_call("WEEKLY", injected_today)
+
+
+def test_run_daily_sync_no_gap_backfill_when_last_sync_date_is_none():
+    service, orchestrator = _build_orchestrator()
+    injected_today = date(2026, 6, 26)
+
+    with patch.object(service, "collect_week", return_value=True) as mock_week, \
+         patch.object(service, "collect_month", return_value=True), \
+         patch.object(service, "sync_manifest", return_value=None), \
+         patch.object(service, "sync_db_to_drive", return_value=True), \
+         patch.object(service, "get_last_sync_date", return_value=None), \
+         patch.object(service, "set_last_sync_date"):
+        orchestrator.run_daily_sync(today=injected_today)
+
+    assert mock_week.call_count == 2
+
+
+def test_run_daily_sync_does_not_advance_last_sync_date_when_collect_fails():
+    """collect_week/collect_month가 실패(False)하면 last_sync_date를 전진시키지 않아야
+    다음 실행에서 그 공백이 갭 백필 대상으로 다시 잡힌다 (리뷰 지적사항)."""
+    service, orchestrator = _build_orchestrator()
+    injected_today = date(2026, 6, 26)
+
+    with patch.object(service, "collect_week", return_value=False), \
+         patch.object(service, "collect_month", return_value=True), \
+         patch.object(service, "sync_manifest", return_value=None), \
+         patch.object(service, "sync_db_to_drive", return_value=True), \
+         patch.object(service, "get_last_sync_date", return_value=None), \
+         patch.object(service, "set_last_sync_date") as mock_set_sync:
+        orchestrator.run_daily_sync(today=injected_today)
+
+    weekly_calls = [c for c in mock_set_sync.call_args_list if c.args[0] == "WEEKLY"]
+    monthly_calls = [c for c in mock_set_sync.call_args_list if c.args[0] == "MONTHLY"]
+    assert weekly_calls == []
+    assert monthly_calls and monthly_calls[0].args == ("MONTHLY", injected_today)

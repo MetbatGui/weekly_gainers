@@ -191,3 +191,26 @@ def test_upload_year_to_drive_returns_false_when_no_file(tmp_path):
 
     assert result is False
     assert uploader.uploaded_files == []
+
+
+def test_last_sync_date_round_trip(tmp_path):
+    repo = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
+
+    assert repo.get_last_sync_date() is None
+
+    repo.set_last_sync_date(date(2026, 6, 26))
+    assert repo.get_last_sync_date() == date(2026, 6, 26)
+
+    repo.set_last_sync_date(date(2026, 7, 3))
+    assert repo.get_last_sync_date() == date(2026, 7, 3)
+
+
+def test_last_sync_date_isolated_between_weekly_and_monthly(tmp_path):
+    base = str(tmp_path / "db")
+    weekly_repo = SqliteReportStorageAdapter(base_dir=base, period_type="WEEKLY")
+    monthly_repo = SqliteReportStorageAdapter(base_dir=base, period_type="MONTHLY")
+
+    weekly_repo.set_last_sync_date(date(2026, 6, 26))
+
+    assert weekly_repo.get_last_sync_date() == date(2026, 6, 26)
+    assert monthly_repo.get_last_sync_date() is None
