@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
-from domain.ports import ReportStoragePort
+from domain.ports import ReportStoragePort, CloudUploadPort
 
 _ITEM_COLUMNS = [
     "symbol_code", "symbol_name", "start_date", "base_price",
@@ -149,3 +149,16 @@ class SqliteReportStorageAdapter(ReportStoragePort):
             return row is not None and row[0] == CollectionStatus.COMPLETED.value
         finally:
             conn.close()
+
+    def upload_year_to_drive(self, year: int, uploader: CloudUploadPort) -> bool:
+        """연도별 DB 파일을 구글 드라이브의 db/{weekly,monthly} 서브폴더로 업로드."""
+        path = self._db_path(year)
+        if not path.exists():
+            return False
+        subfolder = "weekly" if self.period_type == "WEEKLY" else "monthly"
+        return uploader.upload_file(
+            local_path=str(path),
+            remote_path=f"db/{subfolder}",
+            filename=path.name,
+            mimetype="application/x-sqlite3",
+        )

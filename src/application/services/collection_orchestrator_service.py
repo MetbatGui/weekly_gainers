@@ -29,6 +29,11 @@ class CollectionOrchestratorService:
         self.service.collect_week(current_year, current_week, is_final=False)
 
         self.service.sync_manifest("WEEKLY", current_year)
+        self.service.sync_db_to_drive("WEEKLY", current_year)
+        if prev_year != current_year:
+            # 연도 경계(1월 초)에서 방금 FINAL 확정된 지난해 마지막 주도 동기화
+            self.service.sync_manifest("WEEKLY", prev_year)
+            self.service.sync_db_to_drive("WEEKLY", prev_year)
 
         current_month_year, current_month = today.year, today.month
         if current_month == 1:
@@ -43,5 +48,10 @@ class CollectionOrchestratorService:
         self.service.collect_month(current_month_year, current_month, is_final=False)
 
         self.service.sync_manifest("MONTHLY", current_month_year)
+        self.service.sync_db_to_drive("MONTHLY", current_month_year)
+        if prev_month_year != current_month_year:
+            # 연도 경계(1월)에서 방금 FINAL 확정된 지난해 12월도 동기화
+            self.service.sync_manifest("MONTHLY", prev_month_year)
+            self.service.sync_db_to_drive("MONTHLY", prev_month_year)
 
         print(f"[Pipeline] 모든 동기화 작업 완료!\n")
