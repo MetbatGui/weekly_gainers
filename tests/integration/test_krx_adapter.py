@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from unittest.mock import patch, MagicMock
 import pytest
+import json
 
 from infra.adapters.krx_adapter import KrxStockDataAdapter
 from domain.models import WeeklyGainerItem
@@ -198,12 +199,12 @@ def test_fetch_index_components_cache_hit_mock(tmp_path):
 def test_fetch_index_components_cache_expired_mock(tmp_path):
     """지수 구성종목 캐시 파일이 존재하지만 생성일이 오늘이 아닌 경우 캐시가 만료되고 새로 API를 호출하는지 검증"""
     adapter = KrxStockDataAdapter(cache_dir=str(tmp_path / "cache"))
-    target_date = date(2026, 6, 30)
+    target_date = date.today()
 
-    # 1. 인위적으로 어제 날짜로 만료된 캐시 생성
+    # 1. 인위적으로 어제 날짜로 만료된 캐시 생성 (오늘자 대상)
     import json
     adapter.cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = adapter.cache_dir / "index_components_KOSPI200_20260630.json"
+    cache_file = adapter.cache_dir / f"index_components_KOSPI200_{target_date.strftime('%Y%m%d')}.json"
     yesterday_str = (date.today() - timedelta(days=1)).isoformat()
 
     cache_data = {
@@ -237,5 +238,29 @@ def test_fetch_index_components_cache_expired_mock(tmp_path):
             new_cache_data = json.load(f)
         assert new_cache_data["created_at"] == date.today().isoformat()
         assert set(new_cache_data["components"]) == {"005930"}
+
+
+def test_fetch_index_components_past_date_cache_hit_mock(tmp_path):
+    """과거 거래일(target_date < today)의 캐시는 생성일이 오늘이 아니어도 만료되지 않고 히트하는지 검증"""
+    adapter = KrxStockDataAdapter(cache_dir=str(tmp_path / "cache"))
+    target_date = date(2026, 6, 30)  # 과거 거래일
+
+    adapter.cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = adapter.cache_dir / "index_components_KOSPI200_20260630.json"
+    old_created_at = "2026-07-01"
+
+    cache_data = {
+        "created_at": old_created_at,
+        "components": ["005930", "000660"]
+    }
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(cache_data, f)
+
+    with patch.object(adapter.session, 'post') as mock_post:
+        # 조회 수행: 과거 거래일이므로 API를 호출하지 않고 기존 캐시 데이터를 그대로 로드해야 함
+        components = adapter.fetch_index_components("KOSPI_200", target_date)
+        assert mock_post.call_count == 0
+        assert components == {"005930", "000660"}
+
 
 

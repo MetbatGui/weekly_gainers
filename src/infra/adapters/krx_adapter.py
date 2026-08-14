@@ -168,11 +168,23 @@ class KrxStockDataAdapter(StockDataPort):
                 with open(cache_file, "r", encoding="utf-8") as f:
                     cache_data = json.load(f)
                 
-                # 유효기간 확인 (생성일이 오늘과 동일한지 검증)
-                today_str = date.today().isoformat()
-                if cache_data.get("created_at") == today_str:
-                    print(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 히트 (생성일: {today_str})")
-                    return set(cache_data.get("components", []))
+                # 유효기간 확인:
+                # 1) 과거 거래일(target_date < today): 캐시 데이터가 존재하면 영구 유효
+                # 2) 오늘/미래 거래일: 생성일이 오늘과 동일한 경우에만 유효
+                today = date.today()
+                today_str = today.isoformat()
+                cached_components = cache_data.get("components", [])
+
+                is_valid = False
+                if cached_components:
+                    if target_date < today:
+                        is_valid = True
+                    elif cache_data.get("created_at") == today_str:
+                        is_valid = True
+
+                if is_valid:
+                    print(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 히트 (생성일: {cache_data.get('created_at')})")
+                    return set(cached_components)
                 else:
                     print(f"[Adapter:KRX] {index_code} {target_date} 캐시 만료됨 (생성일: {cache_data.get('created_at')}, 오늘: {today_str})")
             except Exception as e:
