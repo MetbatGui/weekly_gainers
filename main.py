@@ -11,7 +11,7 @@ from application.services.calendar_service import CalendarService
 from application.services.weekly_gainer_service import WeeklyGainerService
 from application.services.collection_orchestrator_service import CollectionOrchestratorService
 from infra.adapters.krx_adapter import KrxStockDataAdapter
-from infra.storage.google_drive_repository import GoogleDriveReportStorageAdapter
+from infra.storage.sqlite_repository import SqliteReportStorageAdapter
 from infra.storage.google_drive_adapter import GoogleDriveAdapter
 
 def main():
@@ -74,9 +74,9 @@ def main():
     
     gdrive_adapter = GoogleDriveAdapter()
     
-    # 구글 드라이브 기반 SSOT 저장소 주입 (로컬 파일 완전 제거)
-    repository_weekly = GoogleDriveReportStorageAdapter(uploader=gdrive_adapter, period_type="WEEKLY")
-    repository_monthly = GoogleDriveReportStorageAdapter(uploader=gdrive_adapter, period_type="MONTHLY")
+    # SQLite 기반 SSOT 저장소 주입 (연도별 db/{weekly,monthly}/{year}.db, Drive에도 동기화)
+    repository_weekly = SqliteReportStorageAdapter(base_dir="db", period_type="WEEKLY")
+    repository_monthly = SqliteReportStorageAdapter(base_dir="db", period_type="MONTHLY")
     
     service = WeeklyGainerService(
         calendar=calendar_service,

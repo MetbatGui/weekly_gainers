@@ -45,9 +45,9 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
     # 구글 드라이브 업로더 스텁
     uploader = StubUploader()
     
-    # 구글 드라이브 기반 저장소 (로컬 대신 드라이브 SSOT 사용)
-    from infra.storage.google_drive_repository import GoogleDriveReportStorageAdapter
-    repository = GoogleDriveReportStorageAdapter(uploader=uploader, period_type="WEEKLY")
+    # SQLite 기반 저장소 (SSOT)
+    from infra.storage.sqlite_repository import SqliteReportStorageAdapter
+    repository = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
 
     # 2. 서비스 인스턴스에 실제 어댑터들 주입 (의존성 주입 완료형)
     service = WeeklyGainerService(
@@ -116,20 +116,16 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         assert loaded_event.items[0].symbol_name == "삼성전자"
         assert loaded_event.items[0].change_rate == 21.43
 
-        # 업로더 기록 검증 (엑셀 리포트, 매니페스트 등 총 2건 확인)
-        assert len(uploader.uploaded_files) == 2
-        
+        # 업로더 기록 검증 (SQLite 저장소는 save() 시 매니페스트를 올리지 않으므로 엑셀 리포트 1건)
+        assert len(uploader.uploaded_files) == 1
+
         # 엑셀 파일 찾기
         excel_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".xlsx")), None)
         assert excel_upload is not None
         excel_filename, excel_remote_path, excel_content = excel_upload
         assert "weekly_gainers_2026_W26" in excel_filename
         assert isinstance(excel_content, bytes)
-        
-        # 매니페스트 파일 찾기
-        manifest_upload = next((f for f in uploader.uploaded_files if f[0].endswith(".json")), None)
-        assert manifest_upload is not None
-        
+
         # 엑셀 데이터프레임 복원 및 시트별 검증
         excel_file = pd.ExcelFile(io.BytesIO(excel_content), engine='openpyxl')
         assert "전체_등락종목" in excel_file.sheet_names
