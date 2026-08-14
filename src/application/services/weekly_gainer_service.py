@@ -203,8 +203,9 @@ class WeeklyGainerService:
         """월간 수집 메서드."""
         return self.collect_period("MONTHLY", year, month, force, is_final)
 
-    def _sync_manifest(self, repo: ReportStoragePort, year: int):
+    def sync_manifest(self, period_type: str, year: int):
         """저장소가 매니페스트 파일을 쓰는 구현체(Parquet 등)인 경우 구글 드라이브로 동기화."""
+        repo = self.repo if period_type.upper() == "WEEKLY" else self.repo_monthly
         if not hasattr(repo, "_get_manifest_path"):
             return
         manifest_file = repo._get_manifest_path(year)
@@ -216,40 +217,6 @@ class WeeklyGainerService:
                 filename=manifest_file.name,
                 mimetype="application/json"
             )
-
-    def sync_pipeline(self):
-        """전체 수집 파이프라인 실행: 주간+월간 각각 지난 기간 확정 + 이번 기간 업데이트."""
-        today = date.today()
-        print(f"\n[Pipeline] 수집 동기화 시작 (기준일: {today})")
-
-        # 주간
-        current_year, current_week, _ = today.isocalendar()
-        prev_year, prev_week, _ = (today - timedelta(weeks=1)).isocalendar()
-
-        print(f"--- 주간: 지난주({prev_year}-W{prev_week:02d}) 최종 확정 시도 ---")
-        self.collect_week(prev_year, prev_week, is_final=True)
-
-        print(f"--- 주간: 이번 주({current_year}-W{current_week:02d}) 실시간 업데이트 시도 ---")
-        self.collect_week(current_year, current_week, is_final=False)
-
-        self._sync_manifest(self.repo, current_year)
-
-        # 월간
-        current_month_year, current_month = today.year, today.month
-        if current_month == 1:
-            prev_month_year, prev_month = current_month_year - 1, 12
-        else:
-            prev_month_year, prev_month = current_month_year, current_month - 1
-
-        print(f"--- 월간: 지난달({prev_month_year}-{prev_month:02d}월) 최종 확정 시도 ---")
-        self.collect_month(prev_month_year, prev_month, is_final=True)
-
-        print(f"--- 월간: 이번 달({current_month_year}-{current_month:02d}월) 실시간 업데이트 시도 ---")
-        self.collect_month(current_month_year, current_month, is_final=False)
-
-        self._sync_manifest(self.repo_monthly, current_month_year)
-
-        print(f"[Pipeline] 모든 동기화 작업 완료!\n")
 
     def backfill_year(self, year: int, period_type: str = "WEEKLY"):
         """특정 연도의 모든 주차/월을 순회하며 누락된 데이터를 수집합니다."""

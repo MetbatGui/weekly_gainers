@@ -142,5 +142,10 @@ def test_db_file_has_events_and_items_tables(tmp_path):
         ).fetchall()}
         assert "events" in tables
         assert "items" in tables
+
+        indexes = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ).fetchall()}
+        assert "idx_items_event_id" in indexes
     finally:
         conn.close()
