@@ -228,6 +228,18 @@ class WeeklyGainerService:
             return False
         return repo.upload_year_to_drive(year, self.gdrive)
 
+    def get_last_sync_date(self, period_type: str) -> Optional[date]:
+        """저장소가 last_sync_date를 추적하는 구현체(SqliteReportStorageAdapter)인 경우에만 값을 반환."""
+        repo = self._repo_for(period_type)
+        if not hasattr(repo, "get_last_sync_date"):
+            return None
+        return repo.get_last_sync_date()
+
+    def set_last_sync_date(self, period_type: str, value: date) -> None:
+        repo = self._repo_for(period_type)
+        if hasattr(repo, "set_last_sync_date"):
+            repo.set_last_sync_date(value)
+
     def backfill_year(self, year: int, period_type: str = "WEEKLY"):
         """특정 연도의 모든 주차/월을 순회하며 누락된 데이터를 수집합니다."""
         period_type = period_type.upper()

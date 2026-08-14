@@ -24,6 +24,9 @@ class SqliteReportStorageAdapter(ReportStoragePort):
     def _db_path(self, year: int) -> Path:
         return self.base_path / f"{year}.db"
 
+    def _meta_path(self) -> Path:
+        return self.base_path / "meta.db"
+
     def _connect_and_init(self, year: int) -> sqlite3.Connection:
         """스키마(테이블+인덱스)를 보장하며 연결. 쓰기(save) 경로에서만 사용."""
         conn = sqlite3.connect(self._db_path(year))
@@ -162,3 +165,32 @@ class SqliteReportStorageAdapter(ReportStoragePort):
             filename=path.name,
             mimetype="application/x-sqlite3",
         )
+
+    def get_last_sync_date(self) -> Optional[date]:
+        """마지막으로 daily 동기화가 완료된 기준일. 기록 없으면 None."""
+        path = self._meta_path()
+        if not path.exists():
+            return None
+        conn = sqlite3.connect(path)
+        try:
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key = 'last_sync_date'"
+            ).fetchone()
+            return date.fromisoformat(row[0]) if row else None
+        finally:
+            conn.close()
+
+    def set_last_sync_date(self, value: date) -> None:
+        conn = sqlite3.connect(self._meta_path())
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('last_sync_date', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (value.isoformat(),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
