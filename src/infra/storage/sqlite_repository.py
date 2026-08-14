@@ -24,7 +24,8 @@ class SqliteReportStorageAdapter(ReportStoragePort):
     def _db_path(self, year: int) -> Path:
         return self.base_path / f"{year}.db"
 
-    def _connect(self, year: int) -> sqlite3.Connection:
+    def _connect_and_init(self, year: int) -> sqlite3.Connection:
+        """스키마(테이블+인덱스)를 보장하며 연결. 쓰기(save) 경로에서만 사용."""
         conn = sqlite3.connect(self._db_path(year))
         conn.execute(
             """CREATE TABLE IF NOT EXISTS events (
@@ -40,7 +41,14 @@ class SqliteReportStorageAdapter(ReportStoragePort):
                 change REAL, change_rate REAL, volume INTEGER, amount INTEGER
             )"""
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_event_id ON items(event_id)"
+        )
         return conn
+
+    def _connect_readonly(self, year: int) -> sqlite3.Connection:
+        """스키마가 이미 존재한다고 가정하고 DDL 없이 연결. 읽기(get_by_id/exists) 경로 전용."""
+        return sqlite3.connect(self._db_path(year))
 
     @staticmethod
     def _year_of(event_id: str) -> Optional[int]:
@@ -50,7 +58,7 @@ class SqliteReportStorageAdapter(ReportStoragePort):
             return None
 
     def save(self, event: WeeklyCollectionEvent) -> None:
-        conn = self._connect(event.year)
+        conn = self._connect_and_init(event.year)
         try:
             conn.execute(
                 """INSERT INTO events (id, year, week, month, week_of_month,
@@ -92,7 +100,7 @@ class SqliteReportStorageAdapter(ReportStoragePort):
         if year is None or not self._db_path(year).exists():
             return None
 
-        conn = self._connect(year)
+        conn = self._connect_readonly(year)
         try:
             row = conn.execute(
                 "SELECT id, year, week, month, week_of_month, collected_at, day_of_week, "
@@ -133,7 +141,7 @@ class SqliteReportStorageAdapter(ReportStoragePort):
         if year is None or not self._db_path(year).exists():
             return False
 
-        conn = self._connect(year)
+        conn = self._connect_readonly(year)
         try:
             row = conn.execute(
                 "SELECT status FROM events WHERE id = ?", (event_id,)

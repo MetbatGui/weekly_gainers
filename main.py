@@ -9,6 +9,7 @@ sys.path.append(os.path.join(os.getcwd(), 'src'))
 
 from application.services.calendar_service import CalendarService
 from application.services.weekly_gainer_service import WeeklyGainerService
+from application.services.collection_orchestrator_service import CollectionOrchestratorService
 from infra.adapters.krx_adapter import KrxStockDataAdapter
 from infra.storage.google_drive_repository import GoogleDriveReportStorageAdapter
 from infra.storage.google_drive_adapter import GoogleDriveAdapter
@@ -89,7 +90,8 @@ def main():
         # 액션별 분기 실행
         if args.action == "sync":
             # 동기화 파이프라인 기동 (주간+월간 동시 처리, --period 무시)
-            service.sync_pipeline()
+            orchestrator = CollectionOrchestratorService(service)
+            orchestrator.run_daily_sync()
             
         elif args.action == "collect":
             if not args.year or not args.value:

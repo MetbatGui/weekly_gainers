@@ -1,10 +1,11 @@
-from datetime import date, timedelta
+from datetime import date
 from typing import List, Optional, Set, Tuple
 from unittest.mock import patch
 
 from domain.ports import CalendarPort, StockDataPort, ReportStoragePort, CloudUploadPort
 from domain.models import WeeklyCollectionEvent, WeeklyGainerItem
 from application.services.weekly_gainer_service import WeeklyGainerService
+from application.services.collection_orchestrator_service import CollectionOrchestratorService
 
 
 class StubCalendar(CalendarPort):
@@ -54,39 +55,42 @@ class StubUploader(CloudUploadPort):
         return None
 
 
-def _build_service():
-    return WeeklyGainerService(
+def _build_orchestrator():
+    service = WeeklyGainerService(
         calendar=StubCalendar(),
         stock_data=StubStockData(),
         repository=StubRepository(),
         uploader=StubUploader(),
         repository_monthly=StubRepository(),
     )
+    return service, CollectionOrchestratorService(service)
 
 
-def test_sync_pipeline_runs_weekly_and_monthly_in_a_single_call():
-    """sync_pipeline()이 period_type 인자 없이 주간+월간을 한 번에 동기화한다."""
-    service = _build_service()
-
-    today = date.today()
-    current_year, current_week, _ = today.isocalendar()
-    prev_year, prev_week, _ = (today - timedelta(weeks=1)).isocalendar()
-
-    current_month = today.month
-    current_month_year = today.year
-    if current_month == 1:
-        prev_month_year, prev_month = current_month_year - 1, 12
-    else:
-        prev_month_year, prev_month = current_month_year, current_month - 1
+def test_run_daily_sync_calls_weekly_and_monthly_prev_and_current():
+    """today를 주입해 결정론적으로 지난주/이번주, 지난달/이번달 호출 인자를 검증한다."""
+    service, orchestrator = _build_orchestrator()
+    injected_today = date(2026, 6, 25)  # 2026-W26, 목요일
 
     with patch.object(service, "collect_week", return_value=True) as mock_week, \
          patch.object(service, "collect_month", return_value=True) as mock_month:
-        service.sync_pipeline()
+        orchestrator.run_daily_sync(today=injected_today)
 
-    mock_week.assert_any_call(prev_year, prev_week, is_final=True)
-    mock_week.assert_any_call(current_year, current_week, is_final=False)
+    mock_week.assert_any_call(2026, 25, is_final=True)
+    mock_week.assert_any_call(2026, 26, is_final=False)
     assert mock_week.call_count == 2
 
-    mock_month.assert_any_call(prev_month_year, prev_month, is_final=True)
-    mock_month.assert_any_call(current_month_year, current_month, is_final=False)
+    mock_month.assert_any_call(2026, 5, is_final=True)
+    mock_month.assert_any_call(2026, 6, is_final=False)
     assert mock_month.call_count == 2
+
+
+def test_run_daily_sync_january_boundary_rolls_back_to_prev_year_december():
+    service, orchestrator = _build_orchestrator()
+    injected_today = date(2026, 1, 8)  # 2026-W02
+
+    with patch.object(service, "collect_week", return_value=True), \
+         patch.object(service, "collect_month", return_value=True) as mock_month:
+        orchestrator.run_daily_sync(today=injected_today)
+
+    mock_month.assert_any_call(2025, 12, is_final=True)
+    mock_month.assert_any_call(2026, 1, is_final=False)
