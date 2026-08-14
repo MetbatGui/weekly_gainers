@@ -26,6 +26,9 @@ class WeeklyGainerService:
         self.gdrive = uploader
         self.excel_builder = excel_builder or ExcelReportBuilder()
 
+    def _repo_for(self, period_type: str) -> ReportStoragePort:
+        return self.repo if period_type.upper() == "WEEKLY" else self.repo_monthly
+
     def _generate_fingerprint(self, items: List[WeeklyGainerItem]) -> str:
         """상위 5개 종목의 코드와 등락률로 고유 지문을 생성합니다."""
         top_items = sorted(items, key=lambda x: x.change_rate, reverse=True)[:5]
@@ -68,7 +71,7 @@ class WeeklyGainerService:
             event_id = f"{year}-M{period_value:02d}"
 
         # 2. 기존 상태 확인
-        repo = self.repo if period_type == "WEEKLY" else self.repo_monthly
+        repo = self._repo_for(period_type)
         existing = repo.get_by_id(event_id)
         if not force and existing:
             if existing.status == CollectionStatus.FINAL:
@@ -205,7 +208,7 @@ class WeeklyGainerService:
 
     def sync_manifest(self, period_type: str, year: int):
         """저장소가 매니페스트 파일을 쓰는 구현체(Parquet 등)인 경우 구글 드라이브로 동기화."""
-        repo = self.repo if period_type.upper() == "WEEKLY" else self.repo_monthly
+        repo = self._repo_for(period_type)
         if not hasattr(repo, "_get_manifest_path"):
             return
         manifest_file = repo._get_manifest_path(year)
@@ -217,6 +220,13 @@ class WeeklyGainerService:
                 filename=manifest_file.name,
                 mimetype="application/json"
             )
+
+    def sync_db_to_drive(self, period_type: str, year: int) -> bool:
+        """저장소가 SQLite DB 파일 기반(SqliteReportStorageAdapter)인 경우 해당 연도 DB를 구글 드라이브로 업로드."""
+        repo = self._repo_for(period_type)
+        if not hasattr(repo, "upload_year_to_drive"):
+            return False
+        return repo.upload_year_to_drive(year, self.gdrive)
 
     def backfill_year(self, year: int, period_type: str = "WEEKLY"):
         """특정 연도의 모든 주차/월을 순회하며 누락된 데이터를 수집합니다."""

@@ -1,10 +1,27 @@
 from datetime import date, datetime
+from typing import Optional
 import sqlite3
 
 import pytest
 
 from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
+from domain.ports import CloudUploadPort
 from infra.storage.sqlite_repository import SqliteReportStorageAdapter
+
+
+class StubUploader(CloudUploadPort):
+    def __init__(self):
+        self.uploaded_files = []
+
+    def upload_excel(self, file_content: bytes, remote_path: str, filename: str) -> bool:
+        return True
+
+    def upload_file(self, local_path: str, remote_path: str, filename: str, mimetype: str = 'application/octet-stream') -> bool:
+        self.uploaded_files.append((local_path, remote_path, filename, mimetype))
+        return True
+
+    def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
+        return None
 
 
 def _make_event(event_id="2026-W26", status=CollectionStatus.COMPLETED, items=None):
@@ -149,3 +166,28 @@ def test_db_file_has_events_and_items_tables(tmp_path):
         assert "idx_items_event_id" in indexes
     finally:
         conn.close()
+
+
+def test_upload_year_to_drive_uploads_db_file(tmp_path):
+    repo = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
+    repo.save(_make_event())
+    uploader = StubUploader()
+
+    result = repo.upload_year_to_drive(2026, uploader)
+
+    assert result is True
+    assert len(uploader.uploaded_files) == 1
+    local_path, remote_path, filename, mimetype = uploader.uploaded_files[0]
+    assert local_path == str(tmp_path / "db" / "weekly" / "2026.db")
+    assert remote_path == "db/weekly"
+    assert filename == "2026.db"
+
+
+def test_upload_year_to_drive_returns_false_when_no_file(tmp_path):
+    repo = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
+    uploader = StubUploader()
+
+    result = repo.upload_year_to_drive(2099, uploader)
+
+    assert result is False
+    assert uploader.uploaded_files == []
