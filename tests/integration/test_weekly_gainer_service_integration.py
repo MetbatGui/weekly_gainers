@@ -140,3 +140,45 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         assert len(df_k200) == 1
         assert df_k200.iloc[0]['종목명'] == "삼성전자"
 
+
+def test_collect_period_skips_index_component_fetch_when_data_unchanged(tmp_path):
+    """지문(fingerprint)이 기존 저장분과 동일하면(데이터 변화 없음) 지수 구성종목 조회를 아예 하지 않아야 한다."""
+    calendar = CalendarService()
+    stock_data = KrxStockDataAdapter(cache_dir=str(tmp_path / "cache"))
+    uploader = StubUploader()
+    from infra.storage.sqlite_repository import SqliteReportStorageAdapter
+    repository = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
+
+    service = WeeklyGainerService(
+        calendar=calendar, stock_data=stock_data, repository=repository, uploader=uploader
+    )
+
+    mock_krx_data = {
+        "OutBlock_1": [
+            {
+                "ISU_SRT_CD": "005930", "ISU_ABBRV": "삼성전자",
+                "BAS_PRC": "70,000", "TDD_CLSPRC": "85,000", "CMPPREVDD_PRC": "15,000",
+                "FLUC_RT": "21.43", "ACC_TRDVOL": "100,000", "ACC_TRDVAL": "8,500,000,000"
+            },
+        ]
+    }
+
+    with patch.object(stock_data.session, 'post') as mock_post, \
+         patch.object(stock_data, 'fetch_index_components', return_value={"005930"}) as mock_idx:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "SUCCESS"
+        mock_response.json.return_value = mock_krx_data
+        mock_post.return_value = mock_response
+
+        # 최초 수집으로 기존 상태(fingerprint) 확보
+        assert service.collect_week(2026, 26, force=True, is_final=False) is True
+        assert mock_idx.call_count == 4
+
+        mock_idx.reset_mock()
+
+        # 같은 데이터로 재수집 -> fingerprint 동일 -> "데이터 변화 없음"으로 건너뛰어야 하며,
+        # 이때 지수 구성종목 조회는 발생하지 않아야 한다.
+        assert service.collect_week(2026, 26, force=False, is_final=False) is True
+        assert mock_idx.call_count == 0
+
