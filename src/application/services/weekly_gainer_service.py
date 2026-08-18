@@ -96,13 +96,26 @@ class WeeklyGainerService:
             print(f"[Service] {event_id} 데이터 수집 실패")
             return False
 
-        # 4. 시작일과 마지막일의 지수구성종목 수집 및 합집합 필터 구성
+        # 4. 지문 생성 및 비교 (무결성 체크) - 변화 없으면 지수 구성종목 조회 없이 조기 종료
+        filter_all = GainerFilter(None, None, threshold=20.0)
+        items_all = filter_all.filter(all_items)
+        items_all.sort(key=lambda x: x.change_rate, reverse=True)
+        new_fingerprint = self._generate_fingerprint(items_all)
+
+        if not force and existing and existing.fingerprint == new_fingerprint:
+            print(f"[Service] {event_id} 데이터 변화 없음 (휴장일 혹은 업데이트 전). 건너뜁니다.")
+            if is_final and existing.status != CollectionStatus.FINAL:
+                existing.status = CollectionStatus.FINAL
+                repo.save(existing)
+            return True
+
+        # 5. 시작일과 마지막일의 지수구성종목 수집 및 합집합 필터 구성
         try:
             # KOSPI 200 구성종목 합집합 필터 (등락률 필터 없음)
             start_k200 = self.krx.fetch_index_components("KOSPI_200", trading_start)
             end_k200 = self.krx.fetch_index_components("KOSPI_200", trading_end)
             filter_k200 = GainerFilter(start_k200, end_k200, threshold=None)
-            
+
             # KOSDAQ 150 구성종목 합집합 필터 (등락률 필터 없음)
             start_k150 = self.krx.fetch_index_components("KOSDAQ_150", trading_start)
             end_k150 = self.krx.fetch_index_components("KOSDAQ_150", trading_end)
@@ -112,30 +125,13 @@ class WeeklyGainerService:
             filter_k200 = GainerFilter(set(), set(), threshold=None)
             filter_k150 = GainerFilter(set(), set(), threshold=None)
 
-        filter_all = GainerFilter(None, None, threshold=20.0)
-
-        # 5. 데이터 필터링
-        items_all = filter_all.filter(all_items)
-        items_all.sort(key=lambda x: x.change_rate, reverse=True)
-
         items_k200 = filter_k200.filter(all_items)
         items_k200.sort(key=lambda x: x.change_rate, reverse=True)
 
         items_k150 = filter_k150.filter(all_items)
         items_k150.sort(key=lambda x: x.change_rate, reverse=True)
 
-        # 지문 생성 (전체 등락 기준)
-        new_fingerprint = self._generate_fingerprint(items_all)
-
-        # 6. 지문 비교 (무결성 체크)
-        if not force and existing and existing.fingerprint == new_fingerprint:
-            print(f"[Service] {event_id} 데이터 변화 없음 (휴장일 혹은 업데이트 전). 건너뜁니다.")
-            if is_final and existing.status != CollectionStatus.FINAL:
-                existing.status = CollectionStatus.FINAL
-                repo.save(existing)
-            return True
-
-        # 7. 이벤트 객체 생성
+        # 6. 이벤트 객체 생성
         event = WeeklyCollectionEvent(
             id=event_id,
             year=year,
@@ -152,11 +148,11 @@ class WeeklyGainerService:
             event.month = period_value
             event.week_of_month = 0
 
-        # 8. 로컬 저장 (Parquet)
+        # 7. 로컬 저장 (Parquet)
         repo.save(event)
         print(f"[Service] 로컬 저장 완료 ({len(items_all)}개 종목, Status: {event.status.value})")
 
-        # 9. Excel 바이너리 작성 및 클라우드 업로드
+        # 8. Excel 바이너리 작성 및 클라우드 업로드
         if items_all:
             column_mapping = {
                 'symbol_code': '종목코드', 'symbol_name': '종목명',
