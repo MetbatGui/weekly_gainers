@@ -46,6 +46,8 @@ class WeeklyGainerItem:
     change_rate: float
     volume: int
     amount: int
+    in_kospi200: bool = False
+    in_kosdaq150: bool = False
 
 
 @dataclass

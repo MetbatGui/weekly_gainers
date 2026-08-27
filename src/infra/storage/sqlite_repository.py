@@ -9,6 +9,7 @@ from domain.ports import ReportStoragePort, CloudUploadPort
 _ITEM_COLUMNS = [
     "symbol_code", "symbol_name", "start_date", "base_price",
     "end_date", "close_price", "change", "change_rate", "volume", "amount",
+    "in_kospi200", "in_kosdaq150",
 ]
 
 
@@ -24,9 +25,6 @@ class SqliteReportStorageAdapter(ReportStoragePort):
     def _db_path(self, year: int) -> Path:
         return self.base_path / f"{year}.db"
 
-    def _meta_path(self) -> Path:
-        return self.base_path / "meta.db"
-
     def _connect_and_init(self, year: int) -> sqlite3.Connection:
         """스키마(테이블+인덱스)를 보장하며 연결. 쓰기(save) 경로에서만 사용."""
         conn = sqlite3.connect(self._db_path(year))
@@ -41,17 +39,28 @@ class SqliteReportStorageAdapter(ReportStoragePort):
             """CREATE TABLE IF NOT EXISTS items (
                 event_id TEXT, symbol_code TEXT, symbol_name TEXT,
                 start_date TEXT, base_price REAL, end_date TEXT, close_price REAL,
-                change REAL, change_rate REAL, volume INTEGER, amount INTEGER
+                change REAL, change_rate REAL, volume INTEGER, amount INTEGER,
+                in_kospi200 INTEGER DEFAULT 0, in_kosdaq150 INTEGER DEFAULT 0
             )"""
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_items_event_id ON items(event_id)"
         )
+        self._migrate_items_columns(conn)
         return conn
 
+    @staticmethod
+    def _migrate_items_columns(conn: sqlite3.Connection) -> None:
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(items)")}
+        for col in ("in_kospi200", "in_kosdaq150"):
+            if col not in existing_cols:
+                conn.execute(f"ALTER TABLE items ADD COLUMN {col} INTEGER DEFAULT 0")
+
     def _connect_readonly(self, year: int) -> sqlite3.Connection:
-        """스키마가 이미 존재한다고 가정하고 DDL 없이 연결. 읽기(get_by_id/exists) 경로 전용."""
-        return sqlite3.connect(self._db_path(year))
+        """스키마가 이미 존재한다고 가정하되, 컬럼 마이그레이션만 보장하며 연결. 읽기(get_by_id/exists) 경로 전용."""
+        conn = sqlite3.connect(self._db_path(year))
+        self._migrate_items_columns(conn)
+        return conn
 
     @staticmethod
     def _year_of(event_id: str) -> Optional[int]:
@@ -90,6 +99,7 @@ class SqliteReportStorageAdapter(ReportStoragePort):
                         item.start_date.isoformat(), item.base_price,
                         item.end_date.isoformat(), item.close_price,
                         item.change, item.change_rate, item.volume, item.amount,
+                        int(item.in_kospi200), int(item.in_kosdaq150),
                     )
                     for item in event.items
                 ],
@@ -132,6 +142,7 @@ class SqliteReportStorageAdapter(ReportStoragePort):
                     start_date=date.fromisoformat(r[2]), base_price=r[3],
                     end_date=date.fromisoformat(r[4]), close_price=r[5],
                     change=r[6], change_rate=r[7], volume=r[8], amount=r[9],
+                    in_kospi200=bool(r[10]), in_kosdaq150=bool(r[11]),
                 )
                 for r in item_rows
             ]
@@ -153,6 +164,25 @@ class SqliteReportStorageAdapter(ReportStoragePort):
         finally:
             conn.close()
 
+    def list_events(self) -> list[WeeklyCollectionEvent]:
+        """Load events from every year DB in this period's SQLite storage."""
+        events: list[WeeklyCollectionEvent] = []
+        for path in sorted(self.base_path.glob("*.db")):
+            try:
+                year = int(path.stem)
+            except ValueError:
+                continue
+            conn = self._connect_readonly(year)
+            try:
+                event_ids = [row[0] for row in conn.execute("SELECT id FROM events ORDER BY id")]
+            finally:
+                conn.close()
+            for event_id in event_ids:
+                event = self.get_by_id(event_id)
+                if event is not None:
+                    events.append(event)
+        return events
+
     def upload_year_to_drive(self, year: int, uploader: CloudUploadPort) -> bool:
         """연도별 DB 파일을 구글 드라이브의 db/{weekly,monthly} 서브폴더로 업로드."""
         path = self._db_path(year)
@@ -165,32 +195,3 @@ class SqliteReportStorageAdapter(ReportStoragePort):
             filename=path.name,
             mimetype="application/x-sqlite3",
         )
-
-    def get_last_sync_date(self) -> Optional[date]:
-        """마지막으로 daily 동기화가 완료된 기준일. 기록 없으면 None."""
-        path = self._meta_path()
-        if not path.exists():
-            return None
-        conn = sqlite3.connect(path)
-        try:
-            row = conn.execute(
-                "SELECT value FROM meta WHERE key = 'last_sync_date'"
-            ).fetchone()
-            return date.fromisoformat(row[0]) if row else None
-        finally:
-            conn.close()
-
-    def set_last_sync_date(self, value: date) -> None:
-        conn = sqlite3.connect(self._meta_path())
-        try:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
-            )
-            conn.execute(
-                "INSERT INTO meta (key, value) VALUES ('last_sync_date', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (value.isoformat(),),
-            )
-            conn.commit()
-        finally:
-            conn.close()

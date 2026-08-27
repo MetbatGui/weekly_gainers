@@ -115,6 +115,8 @@ def test_weekly_gainer_service_integration_flow(tmp_path):
         assert len(loaded_event.items) == 1
         assert loaded_event.items[0].symbol_name == "삼성전자"
         assert loaded_event.items[0].change_rate == 21.43
+        assert loaded_event.items[0].in_kospi200 is True
+        assert loaded_event.items[0].in_kosdaq150 is True
 
         # 업로더 기록 검증 (SQLite 저장소는 save() 시 매니페스트를 올리지 않으므로 엑셀 리포트 1건)
         assert len(uploader.uploaded_files) == 1

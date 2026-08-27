@@ -158,7 +158,9 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
                     change=float(row["change"]),
                     change_rate=float(row["change_rate"]),
                     volume=int(row["volume"]),
-                    amount=int(row["amount"])
+                    amount=int(row["amount"]),
+                    in_kospi200=bool(row["in_kospi200"]) if "in_kospi200" in row else False,
+                    in_kosdaq150=bool(row["in_kosdaq150"]) if "in_kosdaq150" in row else False,
                 ))
             event.items = items
 
@@ -174,7 +176,7 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
         manifest = self._load_manifest(year)
         return event_id in manifest and manifest[event_id]["status"] == CollectionStatus.COMPLETED.value
 
-    def list_all_events(self) -> List[WeeklyCollectionEvent]:
+    def list_events(self) -> List[WeeklyCollectionEvent]:
         events = []
         
         # 연도별 매니페스트 검색 패턴
@@ -214,3 +216,7 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
                 continue
                 
         return events
+
+    def list_all_events(self) -> List[WeeklyCollectionEvent]:
+        """Backward-compatible alias for the former repository API."""
+        return self.list_events()

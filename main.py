@@ -115,8 +115,8 @@ def main():
                 print("[Error] backfill 액션 실행 시에는 --year 지정이 필수입니다.")
                 sys.exit(1)
                 
-            # 백필 실행
-            service.backfill_year(year=args.year, period_type=args.period)
+            # 백필 실행 (--force 시 지문 동일 여부와 무관하게 재수집하여 최신 스키마로 갱신)
+            service.backfill_year(year=args.year, period_type=args.period, force=args.force)
             
     except Exception as e:
         print(f"ERROR: 실행 중 오류 발생: {e}")
