@@ -109,29 +109,31 @@ class WeeklyGainerService:
                 repo.save(existing)
             return True
 
-        # 5. 시작일과 마지막일의 지수구성종목 수집 및 합집합 필터 구성
+        # 5. 시작일과 마지막일의 지수구성종목 수집 및 합집합 풀 구성
         try:
-            # KOSPI 200 구성종목 합집합 필터 (등락률 필터 없음)
+            # KOSPI 200 구성종목 합집합 (시작일 또는 종료일 기준 소속 시 포함)
             start_k200 = self.krx.fetch_index_components("KOSPI_200", trading_start)
             end_k200 = self.krx.fetch_index_components("KOSPI_200", trading_end)
-            filter_k200 = GainerFilter(start_k200, end_k200, threshold=None)
+            k200_pool = start_k200 | end_k200
 
-            # KOSDAQ 150 구성종목 합집합 필터 (등락률 필터 없음)
+            # KOSDAQ 150 구성종목 합집합 (시작일 또는 종료일 기준 소속 시 포함)
             start_k150 = self.krx.fetch_index_components("KOSDAQ_150", trading_start)
             end_k150 = self.krx.fetch_index_components("KOSDAQ_150", trading_end)
-            filter_k150 = GainerFilter(start_k150, end_k150, threshold=None)
+            k150_pool = start_k150 | end_k150
         except Exception as e:
             print(f"[Service] 지수 구성종목 수집 중 에러 발생 (건너뛰거나 빈 리스트로 처리): {e}")
-            filter_k200 = GainerFilter(set(), set(), threshold=None)
-            filter_k150 = GainerFilter(set(), set(), threshold=None)
+            k200_pool = set()
+            k150_pool = set()
 
-        items_k200 = filter_k200.filter(all_items)
-        items_k200.sort(key=lambda x: x.change_rate, reverse=True)
+        # 6. 전체 종목에 지수 소속 플래그 설정 (DB에 영속화되어 K200/K150 시트를 조회 시점에 재구성 가능)
+        for item in items_all:
+            item.in_kospi200 = item.symbol_code in k200_pool
+            item.in_kosdaq150 = item.symbol_code in k150_pool
 
-        items_k150 = filter_k150.filter(all_items)
-        items_k150.sort(key=lambda x: x.change_rate, reverse=True)
+        items_k200 = [item for item in items_all if item.in_kospi200]
+        items_k150 = [item for item in items_all if item.in_kosdaq150]
 
-        # 6. 이벤트 객체 생성
+        # 7. 이벤트 객체 생성
         event = WeeklyCollectionEvent(
             id=event_id,
             year=year,
@@ -148,11 +150,11 @@ class WeeklyGainerService:
             event.month = period_value
             event.week_of_month = 0
 
-        # 7. 로컬 저장 (Parquet)
+        # 8. 로컬 저장 (Parquet)
         repo.save(event)
         print(f"[Service] 로컬 저장 완료 ({len(items_all)}개 종목, Status: {event.status.value})")
 
-        # 8. Excel 바이너리 작성 및 클라우드 업로드
+        # 9. Excel 바이너리 작성 및 클라우드 업로드
         if items_all:
             column_mapping = {
                 'symbol_code': '종목코드', 'symbol_name': '종목명',
@@ -224,32 +226,27 @@ class WeeklyGainerService:
             return False
         return repo.upload_year_to_drive(year, self.gdrive)
 
-    def get_last_sync_date(self, period_type: str) -> Optional[date]:
-        """저장소가 last_sync_date를 추적하는 구현체(SqliteReportStorageAdapter)인 경우에만 값을 반환."""
-        repo = self._repo_for(period_type)
-        if not hasattr(repo, "get_last_sync_date"):
-            return None
-        return repo.get_last_sync_date()
+    def list_events(self, period_type: str) -> List[WeeklyCollectionEvent]:
+        """Return the stored events used as the daily pipeline's sole coverage input."""
+        return self._repo_for(period_type).list_events()
 
-    def set_last_sync_date(self, period_type: str, value: date) -> None:
-        repo = self._repo_for(period_type)
-        if hasattr(repo, "set_last_sync_date"):
-            repo.set_last_sync_date(value)
+    def backfill_year(self, year: int, period_type: str = "WEEKLY", force: bool = False):
+        """특정 연도의 모든 주차/월을 순회하며 누락된 데이터를 수집합니다.
 
-    def backfill_year(self, year: int, period_type: str = "WEEKLY"):
-        """특정 연도의 모든 주차/월을 순회하며 누락된 데이터를 수집합니다."""
+        force=True를 주면 지문이 동일해도 재수집하여 items를 최신 스키마(예: 지수 소속 플래그)로 갱신합니다.
+        """
         period_type = period_type.upper()
         print(f"\n=== {year}년 {period_type} 데이터 Backfill 시작 ===")
-        
+
         today = date.today()
-        
+
         if period_type == "WEEKLY":
             current_year, current_week, _ = today.isocalendar()
             last_week = 53 if year < current_year else current_week
             for w in range(1, last_week + 1):
                 try:
                     is_final = not (year == current_year and w == current_week)
-                    self.collect_week(year, w, is_final=is_final)
+                    self.collect_week(year, w, force=force, is_final=is_final)
                 except Exception as e:
                     print(f"[Service] {year}-W{w} 수집 중 오류 발생: {e}")
                     continue
@@ -258,9 +255,9 @@ class WeeklyGainerService:
             for m in range(1, last_month + 1):
                 try:
                     is_final = not (year == today.year and m == today.month)
-                    self.collect_month(year, m, is_final=is_final)
+                    self.collect_month(year, m, force=force, is_final=is_final)
                 except Exception as e:
                     print(f"[Service] {year}-{m:02d}월 수집 중 오류 발생: {e}")
                     continue
-                    
+
         print(f"=== {year}년 {period_type} Backfill 완료 ===\n")

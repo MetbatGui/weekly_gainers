@@ -82,6 +82,71 @@ def test_save_and_get_by_id_round_trip(tmp_path):
     assert item.amount == 8500000000
 
 
+def test_index_membership_flags_round_trip(tmp_path):
+    repo = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
+    items = [
+        WeeklyGainerItem(
+            symbol_code="005930", symbol_name="삼성전자",
+            start_date=date(2026, 6, 22), base_price=70000.0,
+            end_date=date(2026, 6, 26), close_price=85000.0,
+            change=15000.0, change_rate=21.43, volume=100000, amount=8500000000,
+            in_kospi200=True, in_kosdaq150=False,
+        ),
+        WeeklyGainerItem(
+            symbol_code="900000", symbol_name="비지수종목",
+            start_date=date(2026, 6, 22), base_price=1000.0,
+            end_date=date(2026, 6, 26), close_price=1300.0,
+            change=300.0, change_rate=30.0, volume=1000, amount=1300000,
+            in_kospi200=False, in_kosdaq150=False,
+        ),
+    ]
+    repo.save(_make_event(items=items))
+
+    loaded = repo.get_by_id("2026-W26")
+
+    by_code = {item.symbol_code: item for item in loaded.items}
+    assert by_code["005930"].in_kospi200 is True
+    assert by_code["005930"].in_kosdaq150 is False
+    assert by_code["900000"].in_kospi200 is False
+
+
+def test_legacy_db_without_index_columns_is_migrated_on_read(tmp_path):
+    """기존(플래그 컬럼 추가 전) DB 파일도 읽기 시 자동으로 컬럼이 보강된다."""
+    db_path = tmp_path / "db" / "weekly"
+    db_path.mkdir(parents=True)
+    conn = sqlite3.connect(db_path / "2026.db")
+    conn.execute(
+        """CREATE TABLE items (
+            event_id TEXT, symbol_code TEXT, symbol_name TEXT,
+            start_date TEXT, base_price REAL, end_date TEXT, close_price REAL,
+            change REAL, change_rate REAL, volume INTEGER, amount INTEGER
+        )"""
+    )
+    conn.execute(
+        """CREATE TABLE events (
+            id TEXT PRIMARY KEY, year INTEGER, week INTEGER, month INTEGER,
+            week_of_month INTEGER, collected_at TEXT, day_of_week TEXT,
+            last_trading_day TEXT, status TEXT, total_count INTEGER, fingerprint TEXT
+        )"""
+    )
+    conn.execute(
+        "INSERT INTO events VALUES ('2026-W26', 2026, 26, 6, 4, '2026-06-26T18:00:00', 'Friday', '2026-06-26', 'COMPLETED', 1, 'fp')"
+    )
+    conn.execute(
+        "INSERT INTO items (event_id, symbol_code, symbol_name, start_date, base_price, end_date, close_price, change, change_rate, volume, amount) "
+        "VALUES ('2026-W26', '005930', '삼성전자', '2026-06-22', 70000.0, '2026-06-26', 85000.0, 15000.0, 21.43, 100000, 8500000000)"
+    )
+    conn.commit()
+    conn.close()
+
+    repo = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
+    loaded = repo.get_by_id("2026-W26")
+
+    assert loaded is not None
+    assert loaded.items[0].in_kospi200 is False
+    assert loaded.items[0].in_kosdaq150 is False
+
+
 def test_get_by_id_missing_returns_none(tmp_path):
     repo = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
     assert repo.get_by_id("2026-W01") is None
@@ -193,24 +258,19 @@ def test_upload_year_to_drive_returns_false_when_no_file(tmp_path):
     assert uploader.uploaded_files == []
 
 
-def test_last_sync_date_round_trip(tmp_path):
+def test_list_events_reads_every_year_file_for_db_completeness_audit(tmp_path):
     repo = SqliteReportStorageAdapter(base_dir=str(tmp_path / "db"), period_type="WEEKLY")
+    first = _make_event(event_id="2025-W52")
+    first.year = 2025
+    first.week = 52
+    first.last_trading_day = date(2025, 12, 26)
+    second = _make_event(event_id="2026-W01")
 
-    assert repo.get_last_sync_date() is None
+    repo.save(first)
+    repo.save(second)
 
-    repo.set_last_sync_date(date(2026, 6, 26))
-    assert repo.get_last_sync_date() == date(2026, 6, 26)
+    events = repo.list_events()
 
-    repo.set_last_sync_date(date(2026, 7, 3))
-    assert repo.get_last_sync_date() == date(2026, 7, 3)
-
-
-def test_last_sync_date_isolated_between_weekly_and_monthly(tmp_path):
-    base = str(tmp_path / "db")
-    weekly_repo = SqliteReportStorageAdapter(base_dir=base, period_type="WEEKLY")
-    monthly_repo = SqliteReportStorageAdapter(base_dir=base, period_type="MONTHLY")
-
-    weekly_repo.set_last_sync_date(date(2026, 6, 26))
-
-    assert weekly_repo.get_last_sync_date() == date(2026, 6, 26)
-    assert monthly_repo.get_last_sync_date() is None
+    assert [event.id for event in events] == ["2025-W52", "2026-W01"]
+    assert all(event.items for event in events)
+    assert not (tmp_path / "db" / "weekly" / "meta.db").exists()
