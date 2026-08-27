@@ -63,6 +63,9 @@ class StubRepository(ReportStoragePort):
     def exists(self, event_id: str) -> bool:
         return False
 
+    def list_events(self) -> List[WeeklyCollectionEvent]:
+        return []
+
 
 class StubUploader(CloudUploadPort):
     def __init__(self):

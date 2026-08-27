@@ -57,6 +57,11 @@ class ReportStoragePort(ABC):
     def exists(self, event_id: str) -> bool:
         pass
 
+    @abstractmethod
+    def list_events(self) -> List[WeeklyCollectionEvent]:
+        """Return all events held by this storage scope for DB completeness audits."""
+        pass
+
 
 class CloudUploadPort(ABC):
     """생성된 엑셀 리포트 및 메가데이터 파일을 클라우드(구글 드라이브)에 업로드하는 인터페이스."""

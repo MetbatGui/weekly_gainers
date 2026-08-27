@@ -41,6 +41,9 @@ class RepoWithoutDriveSync(ReportStoragePort):
     def exists(self, event_id) -> bool:
         return False
 
+    def list_events(self) -> List[WeeklyCollectionEvent]:
+        return []
+
 
 class RepoWithDriveSync(RepoWithoutDriveSync):
     def __init__(self):
