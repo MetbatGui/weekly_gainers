@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import pandas as pd
@@ -7,6 +8,8 @@ from pathlib import Path
 
 from domain.models import WeeklyCollectionEvent, WeeklyGainerItem, CollectionStatus
 from domain.ports import ReportStoragePort
+
+logger = logging.getLogger(__name__)
 
 class ParquetWeeklyGainerRepository(ReportStoragePort):
     """Parquet 파일과 연도별 매니페스트를 사용하여 주간/월간 등락률 데이터를 저장하는 구현체."""
@@ -212,7 +215,7 @@ class ParquetWeeklyGainerRepository(ReportStoragePort):
                         total_count=meta["total_count"]
                     ))
             except Exception as e:
-                print(f"[Repository] 매니페스트 파일 로드 스킵 ({m_path.name}): {e}")
+                logger.warning(f"[Repository] 매니페스트 파일 로드 스킵 ({m_path.name}): {e}")
                 continue
                 
         return events

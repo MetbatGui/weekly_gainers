@@ -1,3 +1,4 @@
+import logging
 import requests
 import time
 import json
@@ -11,6 +12,8 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class KrxStockDataAdapter(StockDataPort):
     """KRX API를 호출하여 주간 등락 데이터를 수집하는 어댑터.
@@ -42,7 +45,7 @@ class KrxStockDataAdapter(StockDataPort):
     def _login(self) -> None:
         """KRX 정보데이터시스템 로그인 및 세션 쿠키 갱신"""
         if not self.username or not self.password:
-            print("[Adapter:KRX] 경고: KRX_USERNAME 또는 KRX_PASSWORD가 설정되지 않았습니다. 비로그인 모드로 진행합니다.")
+            logger.warning("[Adapter:KRX] 경고: KRX_USERNAME 또는 KRX_PASSWORD가 설정되지 않았습니다. 비로그인 모드로 진행합니다.")
             return
 
         login_page = f"{self.BASE_URL}/contents/MDC/COMS/client/MDCCOMS001.cmd"
@@ -72,10 +75,10 @@ class KrxStockDataAdapter(StockDataPort):
                 error_code = data.get("_error_code", "")
                 
             if error_code == "CD001":
-                print(f"[Adapter:KRX] 로그인 성공 (회원: {self.username})")
+                logger.info(f"[Adapter:KRX] 로그인 성공 (회원: {self.username})")
                 self.is_logged_in = True
             else:
-                print(f"[Adapter:KRX] 로그인 실패: {data}")
+                logger.warning(f"[Adapter:KRX] 로그인 실패: {data}")
                 self.is_logged_in = False
                 
             # 기본 필수 쿠키 강제 세팅
@@ -83,7 +86,7 @@ class KrxStockDataAdapter(StockDataPort):
             self.session.cookies.set('lang', 'ko_KR', domain='data.krx.co.kr')
             
         except Exception as e:
-            print(f"[Adapter:KRX] 로그인 중 예외 발생: {e}")
+            logger.error(f"[Adapter:KRX] 로그인 중 예외 발생: {e}")
             self.is_logged_in = False
 
     def _parse_num(self, val: str) -> float:
@@ -122,12 +125,12 @@ class KrxStockDataAdapter(StockDataPort):
             
             # 세션 만료 처리
             if "LOGOUT" in response.text and retry:
-                print("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")
+                logger.info("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")
                 self._login()
                 return self.fetch_weekly_data(start_date, end_date, retry=False)
 
             if response.status_code != 200:
-                print(f"[Adapter:KRX] HTTP 에러 발생: {response.status_code}")
+                logger.warning(f"[Adapter:KRX] HTTP 에러 발생: {response.status_code}")
                 return []
             
             data = response.json()
@@ -154,7 +157,7 @@ class KrxStockDataAdapter(StockDataPort):
             return items
 
         except Exception as e:
-            print(f"[Adapter:KRX] 예외 발생: {e}")
+            logger.error(f"[Adapter:KRX] 예외 발생: {e}")
             return []
 
     def fetch_index_components(self, index_code: str, target_date: date, retry: bool = True) -> Set[str]:
@@ -183,12 +186,12 @@ class KrxStockDataAdapter(StockDataPort):
                         is_valid = True
 
                 if is_valid:
-                    print(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 히트 (생성일: {cache_data.get('created_at')})")
+                    logger.info(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 히트 (생성일: {cache_data.get('created_at')})")
                     return set(cached_components)
                 else:
-                    print(f"[Adapter:KRX] {index_code} {target_date} 캐시 만료됨 (생성일: {cache_data.get('created_at')}, 오늘: {today_str})")
+                    logger.info(f"[Adapter:KRX] {index_code} {target_date} 캐시 만료됨 (생성일: {cache_data.get('created_at')}, 오늘: {today_str})")
             except Exception as e:
-                print(f"[Adapter:KRX] 캐시 파일 읽기 실패: {e}")
+                logger.warning(f"[Adapter:KRX] 캐시 파일 읽기 실패: {e}")
 
         # 1. 지수 코드에 따른 파라미터 매핑
         code_upper = index_code.upper().replace("_", "")
@@ -222,12 +225,12 @@ class KrxStockDataAdapter(StockDataPort):
             
             # 세션 만료 처리
             if "LOGOUT" in response.text and retry:
-                print("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")
+                logger.info("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")
                 self._login()
                 return self.fetch_index_components(index_code, target_date, retry=False)
 
             if response.status_code != 200:
-                print(f"[Adapter:KRX] 지수 구성종목 조회 HTTP 에러: {response.status_code}")
+                logger.warning(f"[Adapter:KRX] 지수 구성종목 조회 HTTP 에러: {response.status_code}")
                 return set()
             
             data = response.json()
@@ -247,14 +250,14 @@ class KrxStockDataAdapter(StockDataPort):
                     }
                     with open(cache_file, "w", encoding="utf-8") as f:
                         json.dump(cache_data, f, indent=2, ensure_ascii=False)
-                    print(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 저장 완료 (생성일: {today_str})")
+                    logger.info(f"[Adapter:KRX] {index_code} {target_date} 구성종목 캐시 저장 완료 (생성일: {today_str})")
                 except Exception as e:
-                    print(f"[Adapter:KRX] 캐시 파일 저장 실패: {e}")
+                    logger.warning(f"[Adapter:KRX] 캐시 파일 저장 실패: {e}")
 
             return components
 
         except Exception as e:
-            print(f"[Adapter:KRX] 지수 구성종목 조회 예외 발생: {e}")
+            logger.error(f"[Adapter:KRX] 지수 구성종목 조회 예외 발생: {e}")
             return set()
 
 

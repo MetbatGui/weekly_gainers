@@ -1,9 +1,12 @@
+import logging
 import requests
 import time
 from datetime import date, timedelta
 from typing import Set, Tuple, Optional
 
 from domain.ports import CalendarPort
+
+logger = logging.getLogger(__name__)
 
 class CalendarService(CalendarPort):
     """거래소 휴장일을 고려하여 수집 대상 기간을 계산하는 서비스."""
@@ -58,7 +61,7 @@ class CalendarService(CalendarPort):
             self._holidays_cache[year] = holidays_set
             return holidays_set
         except Exception as e:
-            print(f"[CalendarService] {year}년 KRX 휴장일 조회 중 예외 발생: {e}")
+            logger.warning(f"[CalendarService] {year}년 KRX 휴장일 조회 중 예외 발생: {e}")
             return set()
 
     def is_holiday(self, target_date: date) -> bool:

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, date, timedelta
 import pandas as pd
 from typing import List, Optional, Dict, Set
@@ -6,6 +7,8 @@ from domain.models import WeeklyCollectionEvent, CollectionStatus, WeeklyGainerI
 from domain.ports import CalendarPort, StockDataPort, ReportStoragePort, CloudUploadPort
 from domain.gainer_filter import GainerFilter
 from application.services.excel_report_builder import ExcelReportBuilder
+
+logger = logging.getLogger(__name__)
 
 class WeeklyGainerService:
     """주간 및 월간 등락 종목 수집, 필터링 및 리포트 생성을 총괄하는 서비스."""
@@ -75,10 +78,10 @@ class WeeklyGainerService:
         existing = repo.get_by_id(event_id)
         if not force and existing:
             if existing.status == CollectionStatus.FINAL:
-                print(f"[Service] {event_id}는 이미 최종 확정(FINAL) 상태입니다. 건너뜁니다.")
+                logger.info(f"[Service] {event_id}는 이미 최종 확정(FINAL) 상태입니다. 건너뜁니다.")
                 return True
 
-        print(f"\n[Service] {event_id} ({period_type}) 수집 시도... ({start_target} ~ {end_target})")
+        logger.info(f"[Service] {event_id} ({period_type}) 수집 시도... ({start_target} ~ {end_target})")
 
         # 영업일 보정 및 수집 타겟 범위 계산
         today = date.today()
@@ -87,13 +90,13 @@ class WeeklyGainerService:
         trading_start, trading_end = self.calendar.get_trading_range_in_period(start_target, real_end)
 
         if not trading_start or not trading_end:
-            print(f"[Service] {event_id} 기간 내 거래 영업일이 존재하지 않습니다. 건너뜁니다.")
+            logger.info(f"[Service] {event_id} 기간 내 거래 영업일이 존재하지 않습니다. 건너뜁니다.")
             return True
 
         # 3. 데이터 수집 (KRX 어댑터)
         all_items = self.krx.fetch_period_data(trading_start, trading_end)
         if not all_items:
-            print(f"[Service] {event_id} 데이터 수집 실패")
+            logger.info(f"[Service] {event_id} 데이터 수집 실패")
             return False
 
         # 4. 지문 생성 및 비교 (무결성 체크) - 변화 없으면 지수 구성종목 조회 없이 조기 종료
@@ -103,7 +106,7 @@ class WeeklyGainerService:
         new_fingerprint = self._generate_fingerprint(items_all)
 
         if not force and existing and existing.fingerprint == new_fingerprint:
-            print(f"[Service] {event_id} 데이터 변화 없음 (휴장일 혹은 업데이트 전). 건너뜁니다.")
+            logger.info(f"[Service] {event_id} 데이터 변화 없음 (휴장일 혹은 업데이트 전). 건너뜁니다.")
             if is_final and existing.status != CollectionStatus.FINAL:
                 existing.status = CollectionStatus.FINAL
                 repo.save(existing)
@@ -121,7 +124,7 @@ class WeeklyGainerService:
             end_k150 = self.krx.fetch_index_components("KOSDAQ_150", trading_end)
             k150_pool = start_k150 | end_k150
         except Exception as e:
-            print(f"[Service] 지수 구성종목 수집 중 에러 발생 (건너뛰거나 빈 리스트로 처리): {e}")
+            logger.info(f"[Service] 지수 구성종목 수집 중 에러 발생 (건너뛰거나 빈 리스트로 처리): {e}")
             k200_pool = set()
             k150_pool = set()
 
@@ -152,7 +155,7 @@ class WeeklyGainerService:
 
         # 8. 로컬 저장 (Parquet)
         repo.save(event)
-        print(f"[Service] 로컬 저장 완료 ({len(items_all)}개 종목, Status: {event.status.value})")
+        logger.info(f"[Service] 로컬 저장 완료 ({len(items_all)}개 종목, Status: {event.status.value})")
 
         # 9. Excel 바이너리 작성 및 클라우드 업로드
         if items_all:
@@ -192,7 +195,7 @@ class WeeklyGainerService:
 
             success = self.gdrive.upload_excel(excel_data, remote_path, filename)
             if success:
-                print(f"[Service] 구글 드라이브 업로드 완료 ({filename})")
+                logger.info(f"[Service] 구글 드라이브 업로드 완료 ({filename})")
 
         return True
 
@@ -211,7 +214,7 @@ class WeeklyGainerService:
             return
         manifest_file = repo._get_manifest_path(year)
         if manifest_file.exists():
-            print(f"--- 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
+            logger.info(f"--- 매니페스트({manifest_file.name}) 구글 드라이브 동기화 ---")
             self.gdrive.upload_file(
                 local_path=str(manifest_file),
                 remote_path=str(year),
@@ -236,7 +239,7 @@ class WeeklyGainerService:
         force=True를 주면 지문이 동일해도 재수집하여 items를 최신 스키마(예: 지수 소속 플래그)로 갱신합니다.
         """
         period_type = period_type.upper()
-        print(f"\n=== {year}년 {period_type} 데이터 Backfill 시작 ===")
+        logger.info(f"=== {year}년 {period_type} 데이터 Backfill 시작 ===")
 
         today = date.today()
 
@@ -248,7 +251,7 @@ class WeeklyGainerService:
                     is_final = not (year == current_year and w == current_week)
                     self.collect_week(year, w, force=force, is_final=is_final)
                 except Exception as e:
-                    print(f"[Service] {year}-W{w} 수집 중 오류 발생: {e}")
+                    logger.info(f"[Service] {year}-W{w} 수집 중 오류 발생: {e}")
                     continue
         else:  # MONTHLY
             last_month = 12 if year < today.year else today.month
@@ -257,7 +260,7 @@ class WeeklyGainerService:
                     is_final = not (year == today.year and m == today.month)
                     self.collect_month(year, m, force=force, is_final=is_final)
                 except Exception as e:
-                    print(f"[Service] {year}-{m:02d}월 수집 중 오류 발생: {e}")
+                    logger.info(f"[Service] {year}-{m:02d}월 수집 중 오류 발생: {e}")
                     continue
 
-        print(f"=== {year}년 {period_type} Backfill 완료 ===\n")
+        logger.info(f"=== {year}년 {period_type} Backfill 완료 ===\n")

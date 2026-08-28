@@ -1,8 +1,11 @@
+import logging
 import os
 import sys
 import argparse
 from datetime import date
 from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # src 경로를 시스템 경로에 추가
 sys.path.append(os.path.join(os.getcwd(), 'src'))

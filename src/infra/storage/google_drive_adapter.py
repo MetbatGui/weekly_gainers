@@ -1,3 +1,4 @@
+import logging
 import os
 import io
 from typing import Optional, Union, Dict
@@ -12,6 +13,8 @@ from dotenv import load_dotenv
 from domain.ports import CloudUploadPort
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class GoogleDriveAdapter(CloudUploadPort):
     """Google Drive에 주간 리포트(Excel)를 저장하는 어댑터."""
@@ -31,7 +34,7 @@ class GoogleDriveAdapter(CloudUploadPort):
              raise FileNotFoundError(f"Token file not found: {self.token_file}. secrets 폴더에 토큰이 있는지 확인해주세요.")
 
         self.drive_service = self._authenticate()
-        print(f"[Adapter:GoogleDrive] 인증 완료 (Root Folder ID: {self.root_folder_id})")
+        logger.info(f"[Adapter:GoogleDrive] 인증 완료 (Root Folder ID: {self.root_folder_id})")
 
     def _authenticate(self):
         """Google Drive API 인증 및 토큰 갱신."""
@@ -39,7 +42,7 @@ class GoogleDriveAdapter(CloudUploadPort):
             creds = Credentials.from_authorized_user_file(self.token_file, self.SCOPES)
             
             if creds and creds.expired and creds.refresh_token:
-                print("[Adapter:GoogleDrive] 토큰 만료, 갱신 시도...")
+                logger.info("[Adapter:GoogleDrive] 토큰 만료, 갱신 시도...")
                 creds.refresh(Request())
                 with open(self.token_file, 'w') as token:
                     token.write(creds.to_json())
@@ -63,7 +66,7 @@ class GoogleDriveAdapter(CloudUploadPort):
                 'parents': [parent_id]
             }
             file = self.drive_service.files().create(body=file_metadata, fields='id').execute()
-            print(f"[Adapter:GoogleDrive] New folder created: {folder_name}")
+            logger.info(f"[Adapter:GoogleDrive] New folder created: {folder_name}")
             return file.get('id')
 
     def _ensure_path(self, path: str) -> str:
@@ -82,7 +85,7 @@ class GoogleDriveAdapter(CloudUploadPort):
         """로컬 파일을 구글 드라이브에 업로드합니다."""
         try:
             if not os.path.exists(local_path):
-                print(f"[Adapter:GoogleDrive] [Error] Local file not found: {local_path}")
+                logger.error(f"[Adapter:GoogleDrive] [Error] Local file not found: {local_path}")
                 return False
 
             # 1. 업로드 위치(부모 폴더) 확보
@@ -99,11 +102,11 @@ class GoogleDriveAdapter(CloudUploadPort):
             if existing_files:
                 file_id = existing_files[0]['id']
                 self.drive_service.files().update(fileId=file_id, media_body=media).execute()
-                print(f"[Adapter:GoogleDrive] [OK] File updated: {filename}")
+                logger.info(f"[Adapter:GoogleDrive] [OK] File updated: {filename}")
             else:
                 file_metadata = {'name': filename, 'parents': [parent_id]}
                 self.drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-                print(f"[Adapter:GoogleDrive] [OK] File uploaded: {filename}")
+                logger.info(f"[Adapter:GoogleDrive] [OK] File uploaded: {filename}")
 
             # Windows 환경에서의 파일 락을 방지하기 위해 파일 스트림 해제
             if hasattr(media, '_fd') and media._fd:
@@ -114,7 +117,7 @@ class GoogleDriveAdapter(CloudUploadPort):
 
             return True
         except Exception as e:
-            print(f"[Adapter:GoogleDrive] [Error] File upload failed: {e}")
+            logger.error(f"[Adapter:GoogleDrive] [Error] File upload failed: {e}")
             return False
 
     def upload_excel(self, file_content: bytes, remote_path: str, filename: str) -> bool:
@@ -135,15 +138,15 @@ class GoogleDriveAdapter(CloudUploadPort):
             if existing_files:
                 file_id = existing_files[0]['id']
                 self.drive_service.files().update(fileId=file_id, media_body=media).execute()
-                print(f"[Adapter:GoogleDrive] [OK] File updated: {filename}")
+                logger.info(f"[Adapter:GoogleDrive] [OK] File updated: {filename}")
             else:
                 file_metadata = {'name': filename, 'parents': [parent_id]}
                 self.drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-                print(f"[Adapter:GoogleDrive] [OK] File uploaded: {filename}")
+                logger.info(f"[Adapter:GoogleDrive] [OK] File uploaded: {filename}")
 
             return True
         except Exception as e:
-            print(f"[Adapter:GoogleDrive] [Error] Upload failed: {e}")
+            logger.error(f"[Adapter:GoogleDrive] [Error] Upload failed: {e}")
             return False
 
     def _find_path_id(self, path: str) -> Optional[str]:
@@ -189,7 +192,7 @@ class GoogleDriveAdapter(CloudUploadPort):
             output.seek(0)
             return output.getvalue()
         except Exception as e:
-            print(f"[Adapter:GoogleDrive] [Error] Download failed ({filename}): {e}")
+            logger.error(f"[Adapter:GoogleDrive] [Error] Download failed ({filename}): {e}")
             return None
 
 
