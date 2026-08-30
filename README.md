@@ -90,7 +90,8 @@ python main.py --action backfill --period weekly --year 2024 --force
 ## Docker로 실행
 
 ```bash
-just deploy          # 빌드 후 재기동 (build + up)
+just docker-build     # 이미지 빌드
+just docker-deploy    # 최신 이미지로 컨테이너 재기동
 ```
 
 컨테이너 내장 cron이 스케줄에 따라 `--action sync`를 주기 실행합니다. 스케줄은
