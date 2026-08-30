@@ -166,6 +166,19 @@ class GoogleDriveAdapter(CloudUploadPort):
             
         return current_parent_id
 
+    def path_exists(self, remote_path: str, filename: str) -> bool:
+        """원격 폴더 내 파일 존재 여부만 확인합니다 (다운로드하지 않음)."""
+        try:
+            parent_id = self._find_path_id(remote_path)
+            if not parent_id:
+                return False
+            query = f"name = '{filename}' and '{parent_id}' in parents and trashed = false"
+            results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+            return bool(results.get('files', []))
+        except Exception as e:
+            logger.error(f"[Adapter:GoogleDrive] [Error] path_exists 확인 실패 ({filename}): {e}")
+            return False
+
     def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
         """구글 드라이브로부터 파일 콘텐츠 바이트 데이터를 다운로드합니다."""
         from googleapiclient.http import MediaIoBaseDownload

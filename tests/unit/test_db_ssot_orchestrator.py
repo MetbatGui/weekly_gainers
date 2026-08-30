@@ -100,6 +100,33 @@ def test_daily_sync_handles_december_monday_as_next_year_week_one():
     assert service.week_calls == [(2025, 1, False, False)]
 
 
+def test_daily_sync_skips_periods_and_upload_for_download_failed_year():
+    service = SpyService(
+        weekly_events=[
+            # 2023년치는 DbSyncSession 다운로드 실패로 로컬에 없다고 가정 (완전 누락처럼 보임)
+            weekly_event("2024-W01", 1, date(2024, 1, 5), status=CollectionStatus.COMPLETED),
+        ]
+    )
+
+    CollectionOrchestratorService(service, failed_years={"WEEKLY": {2023}, "MONTHLY": set()}).run_daily_sync(
+        today=date(2024, 1, 5), coverage_start=date(2023, 1, 1)
+    )
+
+    # 2023년 주차는 어떤 것도 수집 시도되지 않아야 한다 (빈 로컬 DB로 재수집·재업로드 금지)
+    assert all(year != 2023 for year, *_ in service.week_calls)
+    assert ("db", "WEEKLY", 2023) not in service.sync_calls
+
+
+def test_daily_sync_skips_current_period_when_its_year_download_failed():
+    service = SpyService(weekly_events=[])
+
+    CollectionOrchestratorService(service, failed_years={"WEEKLY": {2024}, "MONTHLY": set()}).run_daily_sync(
+        today=date(2024, 1, 5), coverage_start=date(2024, 1, 1)
+    )
+
+    assert service.week_calls == []
+
+
 def test_daily_sync_retries_drive_upload_for_existing_historical_db_year():
     service = RetryingDriveSpyService(
         weekly_events=[

@@ -91,6 +91,9 @@ class StubUploader(CloudUploadPort):
                     pass
         return None
 
+    def path_exists(self, remote_path: str, filename: str) -> bool:
+        return any(f_name == filename and r_path == remote_path for f_name, r_path, _ in self.uploaded_files)
+
 
 
 # -------------------------------------------------------------

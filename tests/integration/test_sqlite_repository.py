@@ -23,6 +23,9 @@ class StubUploader(CloudUploadPort):
     def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
         return None
 
+    def path_exists(self, remote_path: str, filename: str) -> bool:
+        return False
+
 
 def _make_event(event_id="2026-W26", status=CollectionStatus.COMPLETED, items=None):
     return WeeklyCollectionEvent(

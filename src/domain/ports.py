@@ -43,7 +43,7 @@ class StockDataPort(ABC):
 
 
 class ReportStoragePort(ABC):
-    """수집 완료 데이터(Parquet) 및 매니페스트 메타데이터를 저장하는 인터페이스."""
+    """수집 완료 데이터(SQLite)를 저장하는 인터페이스."""
 
     @abstractmethod
     def save(self, event: WeeklyCollectionEvent) -> None:
@@ -76,6 +76,15 @@ class CloudUploadPort(ABC):
 
     @abstractmethod
     def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
+        pass
+
+    @abstractmethod
+    def path_exists(self, remote_path: str, filename: str) -> bool:
+        """원격에 해당 파일이 존재하는지 여부만 확인 (다운로드 없음).
+
+        db_ssot_guide.md §6.1: 다운로드 실패("있는데 못 읽음")와 최초 설치
+        ("애초에 없음")를 구분하기 위해 download_file() 전에 먼저 호출한다.
+        """
         pass
 
 

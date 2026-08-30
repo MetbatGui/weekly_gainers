@@ -12,10 +12,14 @@ sys.path.append(os.path.join(os.getcwd(), 'src'))
 
 from application.services.calendar_service import CalendarService
 from application.services.weekly_gainer_service import WeeklyGainerService
-from application.services.collection_orchestrator_service import CollectionOrchestratorService
+from application.services.collection_orchestrator_service import (
+    CollectionOrchestratorService,
+    DEFAULT_COVERAGE_START,
+)
 from infra.adapters.krx_adapter import KrxStockDataAdapter
 from infra.storage.sqlite_repository import SqliteReportStorageAdapter
 from infra.storage.google_drive_adapter import GoogleDriveAdapter
+from infra.storage.db_sync_session import DbSyncSession
 
 def main():
     # .env 로드
@@ -74,56 +78,73 @@ def main():
             return
 
     krx_adapter = KrxStockDataAdapter()
-    
+
     gdrive_adapter = GoogleDriveAdapter()
-    
-    # SQLite 기반 SSOT 저장소 주입 (연도별 db/{weekly,monthly}/{year}.db, Drive에도 동기화)
-    repository_weekly = SqliteReportStorageAdapter(base_dir="db", period_type="WEEKLY")
-    repository_monthly = SqliteReportStorageAdapter(base_dir="db", period_type="MONTHLY")
-    
-    service = WeeklyGainerService(
-        calendar=calendar_service,
-        stock_data=krx_adapter,
-        repository=repository_weekly,
-        uploader=gdrive_adapter,
-        repository_monthly=repository_monthly
-    )
-    
-    try:
-        # 액션별 분기 실행
-        if args.action == "sync":
-            # 동기화 파이프라인 기동 (주간+월간 동시 처리, --period 무시)
-            orchestrator = CollectionOrchestratorService(service)
-            orchestrator.run_daily_sync()
-            
-        elif args.action == "collect":
-            if not args.year or not args.value:
-                print("[Error] collect 액션 실행 시에는 --year 및 --value 지정이 필수입니다.")
-                sys.exit(1)
-            
-            # 단일 수집 실행
-            success = service.collect_period(
-                period_type=args.period,
-                year=args.year,
-                period_value=args.value,
-                force=args.force,
-                is_final=args.final
-            )
-            if not success:
-                print(f"[Collect] {args.period} {args.year}-{args.value} 수집 실패")
-                sys.exit(1)
-                
-        elif args.action == "backfill":
-            if not args.year:
-                print("[Error] backfill 액션 실행 시에는 --year 지정이 필수입니다.")
-                sys.exit(1)
-                
-            # 백필 실행 (--force 시 지문 동일 여부와 무관하게 재수집하여 최신 스키마로 갱신)
-            service.backfill_year(year=args.year, period_type=args.period, force=args.force)
-            
-    except Exception as e:
-        print(f"ERROR: 실행 중 오류 발생: {e}")
-        sys.exit(1)
+
+    # DB SSOT(Drive)를 진짜 임시 작업 사본으로 받아오는 세션 (db_ssot_guide.md §6.1).
+    # 로컬 db/ 디렉토리는 더 이상 신뢰하지 않는다 - 세션이 끝나면 tempdir을 통째로 삭제한다.
+    # collect/backfill이 커버리지 시작 이전 연도를 지정해도 그 해를 세션 범위에 포함시켜야
+    # DbSyncSession이 실제로 다운로드를 시도한다 - 안 그러면 "시도 안 함"이 "실패 없음"으로
+    # 오인되어 원격 미확인 상태로 그 연도를 빈 DB 취급/업로드하게 된다.
+    start_year = min(DEFAULT_COVERAGE_START.year, args.year or DEFAULT_COVERAGE_START.year)
+    end_year = max(date.today().year, args.year or 0)
+    with DbSyncSession(gdrive_adapter, start_year, end_year) as session:
+        repository_weekly = SqliteReportStorageAdapter(base_dir=session.base_dir(), period_type="WEEKLY")
+        repository_monthly = SqliteReportStorageAdapter(base_dir=session.base_dir(), period_type="MONTHLY")
+
+        service = WeeklyGainerService(
+            calendar=calendar_service,
+            stock_data=krx_adapter,
+            repository=repository_weekly,
+            uploader=gdrive_adapter,
+            repository_monthly=repository_monthly
+        )
+
+        try:
+            # 액션별 분기 실행
+            if args.action == "sync":
+                # 동기화 파이프라인 기동 (주간+월간 동시 처리, --period 무시)
+                orchestrator = CollectionOrchestratorService(service, failed_years=session.failed_years)
+                orchestrator.run_daily_sync()
+
+            elif args.action == "collect":
+                if not args.year or not args.value:
+                    print("[Error] collect 액션 실행 시에는 --year 및 --value 지정이 필수입니다.")
+                    sys.exit(1)
+                if args.year in session.failed_years[args.period.upper()]:
+                    print(f"[Error] {args.year}년 DB를 원격에서 받아오지 못했습니다. 이번 실행을 중단합니다.")
+                    sys.exit(1)
+
+                # 단일 수집 실행
+                success = service.collect_period(
+                    period_type=args.period,
+                    year=args.year,
+                    period_value=args.value,
+                    force=args.force,
+                    is_final=args.final
+                )
+                if not success:
+                    print(f"[Collect] {args.period} {args.year}-{args.value} 수집 실패")
+                    sys.exit(1)
+                service.sync_manifest(args.period, args.year)
+                service.sync_db_to_drive(args.period, args.year)
+
+            elif args.action == "backfill":
+                if not args.year:
+                    print("[Error] backfill 액션 실행 시에는 --year 지정이 필수입니다.")
+                    sys.exit(1)
+                if args.year in session.failed_years[args.period.upper()]:
+                    print(f"[Error] {args.year}년 DB를 원격에서 받아오지 못했습니다. 이번 실행을 중단합니다.")
+                    sys.exit(1)
+
+                # 백필 실행 (--force 시 지문 동일 여부와 무관하게 재수집하여 최신 스키마로 갱신)
+                service.backfill_year(year=args.year, period_type=args.period, force=args.force)
+                service.sync_manifest(args.period, args.year)
+                service.sync_db_to_drive(args.period, args.year)
+
+        except Exception as e:
+            print(f"ERROR: 실행 중 오류 발생: {e}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

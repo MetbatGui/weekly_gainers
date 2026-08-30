@@ -51,6 +51,9 @@ class SuccessfulUploader(CloudUploadPort):
     def download_file(self, remote_path: str, filename: str) -> Optional[bytes]:
         return None
 
+    def path_exists(self, remote_path: str, filename: str) -> bool:
+        return False
+
 
 def test_daily_sync_repairs_missing_week_through_sqlite_service_path(tmp_path):
     base_dir = str(tmp_path / "db")

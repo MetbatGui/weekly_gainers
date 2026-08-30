@@ -153,7 +153,7 @@ class WeeklyGainerService:
             event.month = period_value
             event.week_of_month = 0
 
-        # 8. 로컬 저장 (Parquet)
+        # 8. 로컬 저장 (SQLite)
         repo.save(event)
         logger.info(f"[Service] 로컬 저장 완료 ({len(items_all)}개 종목, Status: {event.status.value})")
 

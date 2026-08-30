@@ -7,7 +7,6 @@ import pytest
 from application.services.weekly_gainer_service import WeeklyGainerService
 from application.services.calendar_service import CalendarService
 from infra.adapters.krx_adapter import KrxStockDataAdapter
-from infra.storage.parquet_repository import ParquetWeeklyGainerRepository
 from domain.ports import CloudUploadPort
 
 # Google Drive 업로더는 인증 토큰 의존성 때문에 Stub으로 대체합니다 (스텁 대체 원칙)
@@ -31,6 +30,9 @@ class StubUploader(CloudUploadPort):
             if f_name == filename and r_path == remote_path:
                 return content
         return None
+
+    def path_exists(self, remote_path: str, filename: str) -> bool:
+        return any(f_name == filename and r_path == remote_path for f_name, r_path, _ in self.uploaded_files)
 
 def test_weekly_gainer_service_integration_flow(tmp_path):
     """실제 서비스에 실제 인프라 어댑터들을 주입하고, HTTP만 모킹한 상태에서 전체 주간 수집 파이프라인 통합 흐름 검증"""

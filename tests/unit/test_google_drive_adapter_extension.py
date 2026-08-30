@@ -46,3 +46,34 @@ def test_google_drive_adapter_excel_bytes_upload():
             called_body = mock_service.files().create.call_args[1].get('body', {})
             assert called_body.get('name') == 'test_multi_sheet.xlsx'
             assert called_body.get('parents') == ['mock_parent_folder_id']
+
+
+def test_path_exists_true_when_file_found():
+    with patch.object(GoogleDriveAdapter, "_authenticate") as mock_auth:
+        mock_service = MagicMock()
+        mock_auth.return_value = mock_service
+        adapter = GoogleDriveAdapter()
+
+        with patch.object(adapter, "_find_path_id", return_value="folder_id"):
+            mock_service.files().list().execute.return_value = {"files": [{"id": "abc"}]}
+            assert adapter.path_exists("db/weekly", "2024.db") is True
+
+
+def test_path_exists_false_when_folder_missing():
+    with patch.object(GoogleDriveAdapter, "_authenticate") as mock_auth:
+        mock_service = MagicMock()
+        mock_auth.return_value = mock_service
+        adapter = GoogleDriveAdapter()
+
+        with patch.object(adapter, "_find_path_id", return_value=None):
+            assert adapter.path_exists("db/weekly", "2024.db") is False
+
+
+def test_path_exists_false_on_api_error():
+    with patch.object(GoogleDriveAdapter, "_authenticate") as mock_auth:
+        mock_service = MagicMock()
+        mock_auth.return_value = mock_service
+        adapter = GoogleDriveAdapter()
+
+        with patch.object(adapter, "_find_path_id", side_effect=RuntimeError("network error")):
+            assert adapter.path_exists("db/weekly", "2024.db") is False

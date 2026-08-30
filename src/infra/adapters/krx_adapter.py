@@ -23,8 +23,12 @@ class KrxStockDataAdapter(StockDataPort):
     """
     
     BASE_URL = "https://data.krx.co.kr"
+    # KRX는 짧은 시간 내 대량 요청을 "비정상 대량 조회"로 감지해 소스 IP를 차단한다
+    # (과거 실제로 약 2달간 차단된 사고가 있었음) - 절대 낮추거나 제거하지 말 것.
+    MIN_REQUEST_INTERVAL_SECONDS = 1.0
 
     def __init__(self, cache_dir: Optional[str] = None):
+        self._last_request_time = 0.0
         self.session = requests.Session()
         self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
         self.session.headers.update({
@@ -42,6 +46,13 @@ class KrxStockDataAdapter(StockDataPort):
         self.is_logged_in = False
         self._login()
 
+    def _throttle(self) -> None:
+        """data.krx.co.kr에 대한 모든 요청 사이 최소 간격을 강제한다 (IP 차단 방지)."""
+        elapsed = time.monotonic() - self._last_request_time
+        if elapsed < self.MIN_REQUEST_INTERVAL_SECONDS:
+            time.sleep(self.MIN_REQUEST_INTERVAL_SECONDS - elapsed)
+        self._last_request_time = time.monotonic()
+
     def _login(self) -> None:
         """KRX 정보데이터시스템 로그인 및 세션 쿠키 갱신"""
         if not self.username or not self.password:
@@ -54,22 +65,26 @@ class KrxStockDataAdapter(StockDataPort):
         
         try:
             # 1 & 2. 초기 세션 발급
+            self._throttle()
             self.session.get(login_page, timeout=15)
+            self._throttle()
             self.session.get(login_jsp, headers={"Referer": login_page}, timeout=15)
-            
+
             payload = {
                 "mbrNm": "", "telNo": "", "di": "", "certType": "",
                 "mbrId": self.username, "pw": self.password,
             }
-            
+
             # 3. 로그인 POST
+            self._throttle()
             resp = self.session.post(login_url, data=payload, headers={"Referer": login_page}, timeout=15)
             data = resp.json()
             error_code = data.get("_error_code", "")
-            
+
             # 4. CD011 중복 로그인 처리
             if error_code == "CD011":
                 payload["skipDup"] = "Y"
+                self._throttle()
                 resp = self.session.post(login_url, data=payload, headers={"Referer": login_page}, timeout=15)
                 data = resp.json()
                 error_code = data.get("_error_code", "")
@@ -121,8 +136,9 @@ class KrxStockDataAdapter(StockDataPort):
         }
 
         try:
+            self._throttle()
             response = self.session.post(url, data=payload, timeout=30)
-            
+
             # 세션 만료 처리
             if "LOGOUT" in response.text and retry:
                 logger.info("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")
@@ -221,8 +237,9 @@ class KrxStockDataAdapter(StockDataPort):
         }
 
         try:
+            self._throttle()
             response = self.session.post(url, data=payload, timeout=30)
-            
+
             # 세션 만료 처리
             if "LOGOUT" in response.text and retry:
                 logger.info("[Adapter:KRX] 세션 만료 감지, 재로그인 시도...")

@@ -64,6 +64,9 @@ class StubUploader(CloudUploadPort):
     def download_file(self, remote_path, filename) -> Optional[bytes]:
         return None
 
+    def path_exists(self, remote_path, filename) -> bool:
+        return False
+
 
 def _build_service(repo, repo_monthly=None):
     return WeeklyGainerService(

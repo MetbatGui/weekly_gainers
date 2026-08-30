@@ -6,8 +6,9 @@ services:
     # 프로세스의 OS 환경변수를 상속받지 않지만, main.py의 load_dotenv()가 이 파일을
     # 매번 직접 읽으므로 cron 잡 안에서도 정상 로드된다. 단, 로컬에 .env 파일이 실제로
     # 존재해야 함 - 없으면 Docker가 빈 디렉토리를 대신 마운트해 로드가 조용히 실패한다.
+    # db/는 더 이상 마운트하지 않는다 - main.py가 실행마다 GDrive DB를 컨테이너 내부
+    # tempdir로 받아 세션이 끝나면 삭제한다(db_ssot_guide.md §6.1, "로컬 불신").
     volumes:
-      - ./db:/app/db
       - ./secrets:/app/secrets
       - ./.env:/app/.env
     environment:
@@ -29,8 +30,9 @@ services:
     # 프로세스의 OS 환경변수를 상속받지 않지만, main.py의 load_dotenv()가 이 파일을
     # 매번 직접 읽으므로 cron 잡 안에서도 정상 로드된다. 단, 로컬에 .env 파일이 실제로
     # 존재해야 함 - 없으면 Docker가 빈 디렉토리를 대신 마운트해 로드가 조용히 실패한다.
+    # db/는 더 이상 마운트하지 않는다 - main.py가 실행마다 GDrive DB를 컨테이너 내부
+    # tempdir로 받아 세션이 끝나면 삭제한다(db_ssot_guide.md §6.1, "로컬 불신").
     volumes:
-      - ./db:/app/db
       - ./secrets:/app/secrets
       - ./.env:/app/.env
     environment:
