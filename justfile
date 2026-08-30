@@ -10,6 +10,9 @@ docker-build:
 docker-deploy:
     docker compose up -d
 
+# docker-build -> docker-deploy -> release를 순서대로 한 번에 실행
+ship: docker-build docker-deploy release
+
 setup-release:
     git checkout master
     git remote add employers-weekly-gainers https://github.com/guruta71/weekly-gainers.git
